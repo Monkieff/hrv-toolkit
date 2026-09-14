@@ -1,0 +1,4374 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<!--
+  Tool    : hrv-toolkit.html
+  Version : 1.1.1
+  Updated : 2026-09-14
+  Spec    : Shared Spec v1.7
+
+  Hardware Reliability Validation Toolkit
+  四支工具合併為單檔，左側選單切換。各工具的換算邏輯與版號維持獨立，
+  每支包在自己的 IIFE 裡，CSS 各自 scope 在 #p-<前綴> 之下，互不影響。
+
+  Changelog
+  1.1.1  最近五筆的記錄門檻由 1.2 秒改為 180 秒：換算完靜置三分鐘才認定是使用者要的答案。
+  1.1.0  String / Torque 兩支加「最近五筆」自動記錄；Non-Op / Milestone 兩支加
+         五個具名存檔格。兩者都由外殼實作，工具只需提供 snapshot / restore / summary。
+  1.0.1  html 加 scrollbar-gutter: stable，切換到較長的面板時版面不再位移。
+         隱藏「關於與離線」入口，回到原本要求的四支工具選單（面板保留，#about 仍可進入）。
+  1.0.0  Initial release：合併 string-converter v2.0.0、torque-converter v2.0.0、
+         non-op-test-time-calculator v3.0.0、milestone-progress-calculator v1.0.0
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Hardware Reliability Validation Toolkit</title>
+<style>
+/* ===== 共用層：色彩 token、字體、外殼 ===== */
+:root{
+  /* 基礎四色 */
+  --ink:    #12212B;
+  --ground: #DCE0DE;
+  --panel:  #F6F8F7;
+  --rule:   #A9B2AE;
+
+  /* 語意色 */
+  --pass:   #1C6B48;
+  --fail:   #A32116;
+  --warn:   #9A6400;
+  --live:   #1B5E8C;
+
+  --ink-dim: #4C5C66;
+  --inset:   #CDD3D0;
+
+  --font-ui: system-ui, -apple-system, "Segoe UI", "Noto Sans TC",
+             "PingFang TC", "Microsoft JhengHei", sans-serif;
+  --font-val: ui-monospace, SFMono-Regular, "Cascadia Mono",
+              Consolas, "Noto Sans Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:    #DDE4E2;
+    --ground: #101A1F;
+    --panel:  #1A262C;
+    --rule:   #3A4A52;
+    --pass:   #4FBE8B;
+    --fail:   #E8695C;
+    --warn:   #D9A227;
+    --live:   #5BA3D0;
+    --ink-dim:#8A9AA2;
+    --inset:  #0A1216;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:    #DDE4E2;
+  --ground: #101A1F;
+  --panel:  #1A262C;
+  --rule:   #3A4A52;
+  --pass:   #4FBE8B;
+  --fail:   #E8695C;
+  --warn:   #D9A227;
+  --live:   #5BA3D0;
+  --ink-dim:#8A9AA2;
+  --inset:  #0A1216;
+}
+
+*{ box-sizing: border-box; }
+[hidden]{ display: none !important; }
+
+/* 面板高度不一：短的不出現捲軸、長的出現，會讓可用寬度差一個捲軸寬，
+   切換工具時整個版面就跟著跳。永遠保留捲軸的位置，寬度才固定。 */
+html{ scrollbar-gutter: stable; }
+
+body{
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 0.875rem/1.6 var(--font-ui);
+  -webkit-text-size-adjust: 100%;
+}
+
+.app{
+  display: grid;
+  grid-template-columns: 14rem minmax(0, 1fr);
+  max-width: 76rem;
+  min-height: 100vh;
+  margin: 0 auto;
+  position: relative;
+}
+/* 分隔線畫在容器上，捲動時才不會跟著黏住的選單斷掉 */
+.app::before{
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 14rem;
+  width: 1px;
+  background: var(--rule);
+}
+
+/* 左側選單 */
+.side{
+  padding: 16px 16px 40px;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+.side h1{
+  margin: 0 0 4px;
+  font: 600 0.9375rem/1.4 var(--font-ui);
+}
+.side .kit{
+  font: 400 0.8125rem/1.4 var(--font-val);
+  color: var(--ink-dim);
+  display: block;
+  margin-bottom: 16px;
+}
+.nav{ display: flex; flex-direction: column; gap: 4px; }
+.navbtn{
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  min-height: 44px;
+  padding: 8px 10px;
+  font: 400 0.875rem/1.35 var(--font-ui);
+  color: inherit;
+  cursor: pointer;
+}
+.navbtn[aria-pressed="true"]{
+  background: var(--panel);
+  border-color: var(--rule);
+  font-weight: 600;
+}
+.navbtn:focus-visible{ outline: 2px solid var(--live); outline-offset: 1px; }
+.navsep{ height: 1px; background: var(--rule); margin: 16px 0; }
+
+/* 右側內容 */
+.main{
+  min-width: 0;
+  padding: 0 16px 40px;
+}
+.panel{ max-width: 60rem; }
+
+.phead{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  height: 40px;
+  border-bottom: 1px solid var(--rule);
+}
+.ptitle{ font: 600 1.125rem/40px var(--font-ui); letter-spacing: -0.005em; }
+.phead .ver{ font: 400 0.8125rem/40px var(--font-val); color: var(--ink-dim); }
+
+/* 自我檢查失敗時才出現，四支工具共用一條 */
+#hrvTestFail{
+  max-width: 60rem;
+  margin: 24px 0 0;
+  padding: 12px 16px;
+  border: 1px solid var(--fail);
+  border-radius: 3px;
+  color: var(--fail);
+  font-size: 0.875rem;
+}
+#hrvTestFail b{ font-weight: 600; }
+#hrvTestFail ul{ margin: 4px 0 0; padding-left: 1.25em; }
+#hrvTestFail li{ font-family: var(--font-val); word-break: break-all; }
+
+#p-about section{ padding-block: 24px 0; }
+#p-about section + section{ border-top: 1px solid var(--rule); margin-top: 24px; }
+#p-about h2{ margin: 0 0 16px; font: 600 0.9375rem/1.4 var(--font-ui); }
+#p-about .tablewrap{ overflow-x: auto; }
+#p-about table{ width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+#p-about th, #p-about td{
+  text-align: left; padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--rule); white-space: nowrap;
+}
+#p-about th{ font-weight: 600; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-about td.t{ font-family: var(--font-val); font-variant-numeric: tabular-nums; }
+#p-about ul.note{ margin: 0; padding-left: 1.25em; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-about ul.note li{ margin-bottom: 4px; }
+#p-about ul.note b{ color: var(--ink); font-weight: 600; }
+#p-about .state{
+  margin-top: 16px; padding: 12px 16px;
+  background: var(--inset); border-radius: 2px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.12);
+  font-size: 0.875rem;
+}
+#p-about .state .k{ color: var(--ink-dim); }
+#p-about .state .v{ font-family: var(--font-val); }
+
+.foot{
+  max-width: 60rem;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+
+@media (max-width: 767px){
+  .app{ grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .app::before{ display: none; }
+  .side{
+    position: static;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--rule);
+    padding: 16px 16px 12px;
+  }
+  .nav{
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .navbtn{
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    border-color: var(--rule);
+  }
+  .navsep{ display: none; }
+  #nav-about{ margin-top: 8px; }
+  .main{ padding-top: 16px; }
+}
+
+@media (max-width: 420px){
+  .phead{ height: auto; padding-bottom: 8px; }
+  .ptitle{ font-size: 1rem; line-height: 1.4; }
+  .phead .ver{ line-height: 1.4; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{ transition: none !important; }
+}
+
+/* ===== 以下為各工具自己的樣式，全部 scope 在 #p-<前綴> 之下 ===== */
+/* ===== String Converter ===== */
+#p-sc /* 工具列 */
+.bar{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  height: 40px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 24px;
+}
+#p-sc h2{
+  margin: 0 0 8px;
+  font: 600 0.9375rem/1.4 var(--font-ui);
+}
+#p-sc section{ padding-block: 24px 0; }
+#p-sc section + section{ border-top: 1px solid var(--rule); margin-top: 24px; }
+#p-sc p.note{
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+#p-sc /* 來源 / 目標 */
+.dir{
+  display: grid;
+  grid-template-columns: 1fr 44px 1fr;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+#p-sc .field{
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+#p-sc .field label{
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+#p-sc select,
+#p-sc input[type=text],
+#p-sc textarea,
+#p-sc button{
+  font-family: inherit;
+  color: inherit;
+}
+#p-sc select{
+  appearance: none;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0 28px 0 10px;
+  height: 44px;
+  font: 500 1.125rem/1 var(--font-val);
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 15px) 20px, calc(100% - 10px) 20px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  width: 100%;
+}
+#p-sc #swap{
+  height: 44px;
+  width: 44px;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--panel);
+  font: 400 1.25rem/1 var(--font-ui);
+  cursor: pointer;
+}
+#p-sc textarea{
+  width: 100%;
+  min-height: 3.25rem;
+  resize: vertical;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 10px;
+  font: 500 1.125rem/1.5 var(--font-val);
+  font-variant-numeric: tabular-nums;
+}
+#p-sc textarea:focus-visible,
+#p-sc select:focus-visible,
+#p-sc button:focus-visible{
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+}
+#p-sc textarea:focus{ border-color: var(--live); }
+#p-sc .mode{
+  margin: 8px 0 16px;
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+#p-sc .mode b{ color: var(--ink); font-weight: 600; }
+#p-sc /* 讀數區 */
+.readout{
+  background: var(--inset);
+  border-radius: 2px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.12);
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+#p-sc .readout .val{
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 600 2.25rem/1.25 var(--font-val);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: break-word;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+#p-sc .readout .val.long{ font: 500 1.25rem/1.5 var(--font-val); letter-spacing: 0; }
+#p-sc .readout .val.empty{
+  font: 400 1.25rem/1.5 var(--font-val);
+  color: var(--ink-dim);
+  letter-spacing: 0;
+}
+#p-sc button{
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  min-height: 44px;
+  padding: 0 12px;
+  font: 500 0.875rem/1 var(--font-ui);
+  cursor: pointer;
+}
+#p-sc button[disabled]{ color: var(--ink-dim); opacity: .55; cursor: not-allowed; }
+#p-sc .copy{ flex: 0 0 auto; }
+#p-sc /* 訊息 */
+.msg{
+  margin-top: 8px;
+  min-height: 1.4em;
+  font-size: 0.875rem;
+}
+#p-sc .msg.err{ color: var(--fail); }
+#p-sc .msg.warn{ color: var(--warn); }
+#p-sc .msg .tag{ font-weight: 600; }
+#p-sc /* 按鈕列 */
+.opts{ margin-top: 16px; }
+#p-sc .opts .row{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+#p-sc .opts .lbl{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-sc .opts .row .lbl{ align-self: center; }
+#p-sc button[aria-pressed="true"]{
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+  font-weight: 600;
+}
+#p-sc .opts button{ font-family: var(--font-val); }
+#p-sc /* 自我檢查失敗時才出現的警示列 */
+#testFail{
+  margin-top: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--fail);
+  border-radius: 3px;
+  color: var(--fail);
+  font-size: 0.875rem;
+}
+#p-sc #testFail b{ font-weight: 600; }
+#p-sc #testFail ul{ margin: 4px 0 0; padding-left: 1.25em; }
+#p-sc #testFail li{ font-family: var(--font-val); word-break: break-all; }
+#p-sc footer{
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+@media (max-width: 640px){
+#p-sc .readout{ flex-direction: column; gap: 8px; }
+#p-sc .copy{ width: 100%; }
+#p-sc .readout .val{ font-size: 1.75rem; }
+}
+@media (max-width: 400px){
+#p-sc select{ font-size: 1rem; padding-right: 24px; }
+}
+/* 外掛區塊 */
+#p-sc .ext-head{ display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+#p-sc .ext-title{ font: 600 0.9375rem/1.4 var(--font-ui); }
+#p-sc .ext-list{ list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+#p-sc .ext-list li{ border-bottom: 1px solid var(--rule); }
+#p-sc .ext-row{
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: baseline;
+  width: 100%; min-height: 44px; padding: 12px 0;
+  background: none; border: 0; border-radius: 0; box-shadow: none;
+  text-align: left; color: inherit; cursor: pointer; font: inherit;
+}
+#p-sc .ext-row .sum{ font: 500 0.9375rem/1.35 var(--font-val); overflow-wrap: anywhere; }
+#p-sc .ext-row .when{ font: 400 0.8125rem/1.35 var(--font-val); color: var(--ink-dim); white-space: nowrap; }
+#p-sc .ext-row:focus-visible{ outline: 2px solid var(--live); outline-offset: -2px; }
+#p-sc .ext-empty{ padding: 12px 0; font-size: 0.875rem; color: var(--ink-dim); }
+#p-sc .ext-note{ display: block; margin-top: 8px; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-sc .ext-note.bad{ color: var(--fail); }
+#p-sc .ext-foot{ display: flex; justify-content: flex-end; margin-top: 16px; }
+#p-sc .ext-namerow{ display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; max-width: 24rem; }
+#p-sc .ext-namerow label{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-sc .ext-namerow input{
+  width: 100%; height: 44px; background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 3px; box-shadow: none;
+  padding: 0 10px; font: 500 1rem/1 var(--font-ui); color: inherit;
+}
+#p-sc .slot{
+  display: grid; grid-template-columns: 4.75rem minmax(0, 1fr) auto;
+  gap: 8px 12px; align-items: center; padding: 8px 0;
+}
+#p-sc .slot .no{ font: 500 0.875rem/1.3 var(--font-val); color: var(--ink-dim); }
+#p-sc .slot .info{ display: flex; flex-direction: column; min-width: 0; }
+#p-sc .slot .nm{ font: 600 0.9375rem/1.35 var(--font-ui); overflow-wrap: anywhere; }
+#p-sc .slot .sub{ font: 400 0.8125rem/1.35 var(--font-val); color: var(--ink-dim); overflow-wrap: anywhere; }
+#p-sc .slot.empty .nm{ font-weight: 400; color: var(--ink-dim); }
+#p-sc .slot .acts{ display: flex; gap: 8px; flex: 0 0 auto; }
+#p-sc .slot .acts button{ min-height: 36px; padding: 0 10px; font-size: 0.8125rem; }
+@media (max-width: 640px){
+#p-sc .slot{ grid-template-columns: minmax(0, 1fr); gap: 4px; }
+#p-sc .slot .acts{ margin-top: 4px; }
+#p-sc .slot .acts button{ flex: 1 1 auto; min-height: 44px; }
+#p-sc .ext-row{ grid-template-columns: minmax(0, 1fr); }
+#p-sc .ext-row .when{ white-space: normal; }
+}
+
+/* ===== Torque Converter ===== */
+#p-tq /* 工具列 */
+.bar{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  height: 40px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 24px;
+}
+#p-tq h2{
+  margin: 0 0 8px;
+  font: 600 0.9375rem/1.4 var(--font-ui);
+}
+#p-tq h3{
+  margin: 0 0 8px;
+  font: 600 0.9375rem/1.4 var(--font-ui);
+  color: var(--ink-dim);
+}
+#p-tq section{ padding-block: 24px 0; }
+#p-tq /* 區塊標題列 */
+.head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+#p-tq .head h2{ margin: 0; }
+#p-tq button{
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  min-height: 44px;
+  padding: 0 12px;
+  font: 500 0.875rem/1 var(--font-ui);
+  color: inherit;
+  cursor: pointer;
+}
+#p-tq button:focus-visible,
+#p-tq input:focus-visible{
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+}
+#p-tq /* 三組九欄 */
+.groups{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+#p-tq .group{ min-width: 0; }
+#p-tq .row{
+  display: grid;
+  grid-template-columns: 4.25rem 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+#p-tq .row label{
+  font: 500 0.875rem/1.2 var(--font-val);
+  color: var(--ink-dim);
+  text-align: right;
+  white-space: nowrap;
+}
+#p-tq .row input{
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  background: var(--inset);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.12);
+  padding: 0 8px;
+  font: 500 1.125rem/1 var(--font-val);
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+#p-tq /* 當前輸入端看起來是輸入框，其餘八欄看起來是讀數區 */
+.row.src input,
+#p-tq .groups.idle .row input{
+  background: var(--panel);
+  box-shadow: none;
+}
+#p-tq .row.src input{ border-color: var(--live); }
+#p-tq .row input::placeholder{ color: var(--ink-dim); opacity: .8; }
+#p-tq .row .cp{
+  min-height: 44px;
+  padding: 0 8px;
+  font: 400 0.8125rem/1 var(--font-ui);
+}
+#p-tq /* 訊息 */
+.msg{
+  margin-top: 16px;
+  min-height: 1.4em;
+  font-size: 0.875rem;
+}
+#p-tq .msg.err{ color: var(--fail); }
+#p-tq .msg .tag{ font-weight: 600; }
+#p-tq p.note{
+  margin: 16px 0 0;
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+#p-tq /* 自我檢查失敗時才出現的警示列 */
+#testFail{
+  margin-top: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--fail);
+  border-radius: 3px;
+  color: var(--fail);
+  font-size: 0.875rem;
+}
+#p-tq #testFail b{ font-weight: 600; }
+#p-tq #testFail ul{ margin: 4px 0 0; padding-left: 1.25em; }
+#p-tq #testFail li{ font-family: var(--font-val); word-break: break-all; }
+#p-tq footer{
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+@media (max-width: 760px){
+#p-tq .groups{ grid-template-columns: 1fr; gap: 16px; }
+#p-tq .group + .group{ padding-top: 16px; border-top: 1px solid var(--rule); }
+}
+/* 外掛區塊 */
+#p-tq .ext-head{ display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+#p-tq .ext-title{ font: 600 0.9375rem/1.4 var(--font-ui); }
+#p-tq .ext-list{ list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+#p-tq .ext-list li{ border-bottom: 1px solid var(--rule); }
+#p-tq .ext-row{
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: baseline;
+  width: 100%; min-height: 44px; padding: 12px 0;
+  background: none; border: 0; border-radius: 0; box-shadow: none;
+  text-align: left; color: inherit; cursor: pointer; font: inherit;
+}
+#p-tq .ext-row .sum{ font: 500 0.9375rem/1.35 var(--font-val); overflow-wrap: anywhere; }
+#p-tq .ext-row .when{ font: 400 0.8125rem/1.35 var(--font-val); color: var(--ink-dim); white-space: nowrap; }
+#p-tq .ext-row:focus-visible{ outline: 2px solid var(--live); outline-offset: -2px; }
+#p-tq .ext-empty{ padding: 12px 0; font-size: 0.875rem; color: var(--ink-dim); }
+#p-tq .ext-note{ display: block; margin-top: 8px; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-tq .ext-note.bad{ color: var(--fail); }
+#p-tq .ext-foot{ display: flex; justify-content: flex-end; margin-top: 16px; }
+#p-tq .ext-namerow{ display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; max-width: 24rem; }
+#p-tq .ext-namerow label{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-tq .ext-namerow input{
+  width: 100%; height: 44px; background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 3px; box-shadow: none;
+  padding: 0 10px; font: 500 1rem/1 var(--font-ui); color: inherit;
+}
+#p-tq .slot{
+  display: grid; grid-template-columns: 4.75rem minmax(0, 1fr) auto;
+  gap: 8px 12px; align-items: center; padding: 8px 0;
+}
+#p-tq .slot .no{ font: 500 0.875rem/1.3 var(--font-val); color: var(--ink-dim); }
+#p-tq .slot .info{ display: flex; flex-direction: column; min-width: 0; }
+#p-tq .slot .nm{ font: 600 0.9375rem/1.35 var(--font-ui); overflow-wrap: anywhere; }
+#p-tq .slot .sub{ font: 400 0.8125rem/1.35 var(--font-val); color: var(--ink-dim); overflow-wrap: anywhere; }
+#p-tq .slot.empty .nm{ font-weight: 400; color: var(--ink-dim); }
+#p-tq .slot .acts{ display: flex; gap: 8px; flex: 0 0 auto; }
+#p-tq .slot .acts button{ min-height: 36px; padding: 0 10px; font-size: 0.8125rem; }
+@media (max-width: 640px){
+#p-tq .slot{ grid-template-columns: minmax(0, 1fr); gap: 4px; }
+#p-tq .slot .acts{ margin-top: 4px; }
+#p-tq .slot .acts button{ flex: 1 1 auto; min-height: 44px; }
+#p-tq .ext-row{ grid-template-columns: minmax(0, 1fr); }
+#p-tq .ext-row .when{ white-space: normal; }
+}
+
+/* ===== Non-Op Test Time Calculator ===== */
+#p-nop /* .fields 與 .f 都有自己的 display，會蓋掉 hidden 屬性的預設值，必須明確處理 */
+[hidden]{ display: none !important; }
+#p-nop /* 工具列 */
+.bar{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  height: 40px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 24px;
+}
+#p-nop section{ padding-block: 24px 0; }
+#p-nop section + section{ border-top: 1px solid var(--rule); margin-top: 24px; }
+#p-nop .head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+#p-nop h2{ margin: 0 0 16px; font: 600 0.9375rem/1.4 var(--font-ui); }
+#p-nop .head h2{ margin: 0; }
+#p-nop /* 欄位 */
+.fields{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 16px;
+}
+#p-nop .fields + .fields{ margin-top: 16px; }
+#p-nop .f{ display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#p-nop .grow{ flex: 1 1 auto; min-width: 0; }
+#p-nop .readout.spaced{ margin-top: 16px; }
+#p-nop .f.wide{ grid-column: 1 / -1; }
+#p-nop .f label{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-nop .f .unit{ color: var(--ink-dim); }
+#p-nop .f .hint{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-nop input,
+#p-nop select,
+#p-nop textarea{
+  width: 100%;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0 10px;
+  height: 44px;
+  font: 500 1.125rem/1 var(--font-val);
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+#p-nop textarea{
+  height: auto;
+  min-height: 44px;
+  padding: 10px;
+  line-height: 1.5;
+  resize: vertical;
+  font-size: 1rem;
+}
+#p-nop select{
+  appearance: none;
+  padding-right: 28px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 15px) 20px, calc(100% - 10px) 20px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+#p-nop input::placeholder,
+#p-nop textarea::placeholder{ color: var(--ink-dim); opacity: .75; }
+#p-nop input:focus,
+#p-nop textarea:focus,
+#p-nop select:focus{ border-color: var(--live); }
+#p-nop input:focus-visible,
+#p-nop textarea:focus-visible,
+#p-nop select:focus-visible,
+#p-nop button:focus-visible{
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+}
+#p-nop button{
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  min-height: 44px;
+  padding: 0 12px;
+  font: 500 0.875rem/1 var(--font-ui);
+  color: inherit;
+  cursor: pointer;
+  width: auto;
+}
+#p-nop button[aria-pressed="true"]{
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+  font-weight: 600;
+}
+#p-nop .btnrow{ display: flex; flex-wrap: wrap; gap: 8px; }
+#p-nop /* 讀數區 */
+.readout{
+  background: var(--inset);
+  border-radius: 2px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.12);
+  padding: 16px;
+}
+#p-nop .readout .top{
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+#p-nop .readout .cap{ font-size: 0.8125rem; color: var(--ink-dim); margin-bottom: 4px; }
+#p-nop .readout .val{
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 600 2.25rem/1.2 var(--font-val);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: break-word;
+}
+#p-nop .readout .val.empty{ font: 400 1.125rem/1.5 var(--font-ui); color: var(--ink-dim); letter-spacing: 0; }
+#p-nop .readout .val.sub{ font: 500 1.25rem/1.4 var(--font-val); letter-spacing: 0; }
+#p-nop .stats{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 8px 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+#p-nop .stats div{ display: flex; flex-direction: column; }
+#p-nop .stats .k{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-nop .stats .v{ font: 500 1.125rem/1.35 var(--font-val); font-variant-numeric: tabular-nums; }
+#p-nop /* 時間軸表 */
+.tablewrap{ overflow-x: auto; margin-top: 16px; }
+#p-nop table{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  min-width: 34rem;
+}
+#p-nop th,
+#p-nop td{
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+#p-nop th{ font-weight: 600; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-nop td.t{ font-family: var(--font-val); font-variant-numeric: tabular-nums; }
+#p-nop td.note{ white-space: normal; }
+#p-nop tr.cp td{ font-weight: 600; }
+#p-nop tr.cp td:first-child{ box-shadow: inset 3px 0 0 var(--live); padding-left: 10px; }
+#p-nop tr.wait td{ color: var(--ink-dim); }
+#p-nop /* 訊息 */
+.msg{ margin-top: 16px; min-height: 1.4em; font-size: 0.875rem; }
+#p-nop .msg.err{ color: var(--fail); }
+#p-nop .msg.warn{ color: var(--warn); }
+#p-nop .msg .tag{ font-weight: 600; }
+#p-nop p.note{ margin: 16px 0 0; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-nop p.note b{ color: var(--ink); font-weight: 600; }
+#p-nop ul.note{ margin: 8px 0 0; padding-left: 1.25em; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-nop ul.note li{ margin-bottom: 4px; }
+#p-nop /* 自我檢查失敗時才出現 */
+#testFail{
+  margin-top: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--fail);
+  border-radius: 3px;
+  color: var(--fail);
+  font-size: 0.875rem;
+}
+#p-nop #testFail b{ font-weight: 600; }
+#p-nop #testFail ul{ margin: 4px 0 0; padding-left: 1.25em; }
+#p-nop #testFail li{ font-family: var(--font-val); word-break: break-all; }
+#p-nop footer{
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+@media (max-width: 640px){
+#p-nop .readout .top{ flex-direction: column; gap: 8px; }
+#p-nop .readout .val{ font-size: 1.75rem; }
+#p-nop .readout .top button{ width: 100%; }
+#p-nop /* 窄螢幕不橫向捲表格，改成逐段堆疊，欄名用 data-label 帶出 */
+  .tablewrap{ overflow-x: visible; }
+#p-nop table{ min-width: 0; }
+#p-nop thead{ display: none; }
+#p-nop tbody tr{ display: block; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+#p-nop tbody td{
+    display: flex;
+    gap: 8px;
+    border: none;
+    padding: 1px 0;
+    white-space: normal;
+  }
+#p-nop tbody td::before{
+    content: attr(data-label);
+    flex: 0 0 3.5rem;
+    color: var(--ink-dim);
+    font-size: 0.8125rem;
+    font-family: var(--font-ui);
+    font-weight: 400;
+  }
+#p-nop tr.cp{ box-shadow: inset 3px 0 0 var(--live); padding-left: 10px; }
+#p-nop tr.cp td:first-child{ box-shadow: none; padding-left: 0; }
+}
+#p-nop /* 工具名較長，窄螢幕允許折行並讓工具列跟著長高 */
+@media (max-width: 420px){
+  .bar{ height: auto; min-height: 40px; padding-bottom: 8px; }
+  .bar h1{ font-size: 1rem; line-height: 1.4; }
+  .bar .ver{ line-height: 1.4; }
+}
+/* 外掛區塊 */
+#p-nop .ext-head{ display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+#p-nop .ext-title{ font: 600 0.9375rem/1.4 var(--font-ui); }
+#p-nop .ext-list{ list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+#p-nop .ext-list li{ border-bottom: 1px solid var(--rule); }
+#p-nop .ext-row{
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: baseline;
+  width: 100%; min-height: 44px; padding: 12px 0;
+  background: none; border: 0; border-radius: 0; box-shadow: none;
+  text-align: left; color: inherit; cursor: pointer; font: inherit;
+}
+#p-nop .ext-row .sum{ font: 500 0.9375rem/1.35 var(--font-val); overflow-wrap: anywhere; }
+#p-nop .ext-row .when{ font: 400 0.8125rem/1.35 var(--font-val); color: var(--ink-dim); white-space: nowrap; }
+#p-nop .ext-row:focus-visible{ outline: 2px solid var(--live); outline-offset: -2px; }
+#p-nop .ext-empty{ padding: 12px 0; font-size: 0.875rem; color: var(--ink-dim); }
+#p-nop .ext-note{ display: block; margin-top: 8px; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-nop .ext-note.bad{ color: var(--fail); }
+#p-nop .ext-foot{ display: flex; justify-content: flex-end; margin-top: 16px; }
+#p-nop .ext-namerow{ display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; max-width: 24rem; }
+#p-nop .ext-namerow label{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-nop .ext-namerow input{
+  width: 100%; height: 44px; background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 3px; box-shadow: none;
+  padding: 0 10px; font: 500 1rem/1 var(--font-ui); color: inherit;
+}
+#p-nop .slot{
+  display: grid; grid-template-columns: 4.75rem minmax(0, 1fr) auto;
+  gap: 8px 12px; align-items: center; padding: 8px 0;
+}
+#p-nop .slot .no{ font: 500 0.875rem/1.3 var(--font-val); color: var(--ink-dim); }
+#p-nop .slot .info{ display: flex; flex-direction: column; min-width: 0; }
+#p-nop .slot .nm{ font: 600 0.9375rem/1.35 var(--font-ui); overflow-wrap: anywhere; }
+#p-nop .slot .sub{ font: 400 0.8125rem/1.35 var(--font-val); color: var(--ink-dim); overflow-wrap: anywhere; }
+#p-nop .slot.empty .nm{ font-weight: 400; color: var(--ink-dim); }
+#p-nop .slot .acts{ display: flex; gap: 8px; flex: 0 0 auto; }
+#p-nop .slot .acts button{ min-height: 36px; padding: 0 10px; font-size: 0.8125rem; }
+@media (max-width: 640px){
+#p-nop .slot{ grid-template-columns: minmax(0, 1fr); gap: 4px; }
+#p-nop .slot .acts{ margin-top: 4px; }
+#p-nop .slot .acts button{ flex: 1 1 auto; min-height: 44px; }
+#p-nop .ext-row{ grid-template-columns: minmax(0, 1fr); }
+#p-nop .ext-row .when{ white-space: normal; }
+}
+
+/* ===== Milestone Progress Calculator ===== */
+#p-mpc /* 工具列 */
+.bar{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  height: 40px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 24px;
+}
+#p-mpc section{ padding-block: 24px 0; }
+#p-mpc section + section{ border-top: 1px solid var(--rule); margin-top: 24px; }
+#p-mpc .head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+#p-mpc h2{ margin: 0 0 16px; font: 600 0.9375rem/1.4 var(--font-ui); }
+#p-mpc .head h2{ margin: 0; }
+#p-mpc /* 欄位 */
+.fields{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 16px;
+}
+#p-mpc .f{ display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#p-mpc .grow{ flex: 1 1 auto; min-width: 0; }
+#p-mpc .readout.spaced{ margin-top: 16px; }
+#p-mpc .f.wide{ grid-column: 1 / -1; }
+#p-mpc .f label{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-mpc .f .unit{ color: var(--ink-dim); }
+#p-mpc .f .hint{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-mpc input,
+#p-mpc textarea{
+  width: 100%;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0 10px;
+  height: 44px;
+  font: 500 1.125rem/1 var(--font-val);
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+#p-mpc textarea{
+  height: auto;
+  min-height: 44px;
+  padding: 10px;
+  line-height: 1.5;
+  resize: vertical;
+  font-size: 1rem;
+}
+#p-mpc input.name{ font-family: var(--font-ui); }
+#p-mpc input::placeholder,
+#p-mpc textarea::placeholder{ color: var(--ink-dim); opacity: .75; }
+#p-mpc input:focus,
+#p-mpc textarea:focus{ border-color: var(--live); }
+#p-mpc input:focus-visible,
+#p-mpc textarea:focus-visible,
+#p-mpc button:focus-visible{
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+}
+#p-mpc button{
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  min-height: 44px;
+  padding: 0 12px;
+  font: 500 0.875rem/1 var(--font-ui);
+  color: inherit;
+  cursor: pointer;
+  width: auto;
+}
+#p-mpc /* 里程碑輸入列 */
+.ms-row{
+  display: grid;
+  grid-template-columns: 1fr 11rem auto;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: end;
+}
+#p-mpc .ms-row .lbl{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-mpc .ms-head{ display: grid; grid-template-columns: 1fr 11rem auto; gap: 8px; margin-bottom: 4px; }
+#p-mpc .ms-head span{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-mpc /* 讀數區 */
+.readout{
+  background: var(--inset);
+  border-radius: 2px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.12);
+  padding: 16px;
+}
+#p-mpc .readout .top{ display: flex; align-items: flex-start; gap: 16px; }
+#p-mpc .readout .cap{ font-size: 0.8125rem; color: var(--ink-dim); margin-bottom: 4px; }
+#p-mpc .readout .val{
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 600 2.25rem/1.2 var(--font-val);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: break-word;
+}
+#p-mpc .readout .val.empty{ font: 400 1.125rem/1.5 var(--font-ui); color: var(--ink-dim); letter-spacing: 0; }
+#p-mpc .readout .val.sub{ font: 500 1.25rem/1.4 var(--font-val); letter-spacing: 0; }
+#p-mpc /* 進度條：資料，不是裝飾。灰階，不用狀態色 */
+.track{
+  position: relative;
+  height: 10px;
+  margin-top: 16px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  overflow: hidden;
+}
+#p-mpc .fill{
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ink-dim);
+}
+#p-mpc .tick{
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--ink);
+  transform: translateX(-1px);
+}
+#p-mpc .track-ends{
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+  font-family: var(--font-val);
+}
+#p-mpc .stats{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 8px 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+#p-mpc .stats div{ display: flex; flex-direction: column; }
+#p-mpc .stats .k{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-mpc .stats .v{ font: 500 1.125rem/1.35 var(--font-val); font-variant-numeric: tabular-nums; }
+#p-mpc /* 表 */
+.tablewrap{ overflow-x: auto; margin-top: 16px; }
+#p-mpc table{ width: 100%; border-collapse: collapse; font-size: 0.875rem; min-width: 32rem; }
+#p-mpc th,
+#p-mpc td{
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+#p-mpc th{ font-weight: 600; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-mpc td.t{ font-family: var(--font-val); font-variant-numeric: tabular-nums; }
+#p-mpc td.nm{ white-space: normal; font-weight: 600; }
+#p-mpc tr.passed td{ color: var(--ink-dim); }
+#p-mpc tr.passed td.nm{ font-weight: 400; }
+#p-mpc td .flag{ color: var(--warn); font-size: 0.8125rem; }
+#p-mpc /* 訊息 */
+.msg{ margin-top: 16px; min-height: 1.4em; font-size: 0.875rem; }
+#p-mpc .msg.err{ color: var(--fail); }
+#p-mpc .msg.warn{ color: var(--warn); }
+#p-mpc .msg .tag{ font-weight: 600; }
+#p-mpc ul.note{ margin: 8px 0 0; padding-left: 1.25em; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-mpc ul.note li{ margin-bottom: 4px; }
+#p-mpc /* 自我檢查失敗時才出現 */
+#testFail{
+  margin-top: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--fail);
+  border-radius: 3px;
+  color: var(--fail);
+  font-size: 0.875rem;
+}
+#p-mpc #testFail b{ font-weight: 600; }
+#p-mpc #testFail ul{ margin: 4px 0 0; padding-left: 1.25em; }
+#p-mpc #testFail li{ font-family: var(--font-val); word-break: break-all; }
+#p-mpc footer{
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.8125rem;
+  color: var(--ink-dim);
+}
+@media (max-width: 640px){
+#p-mpc .readout .top{ flex-direction: column; gap: 8px; }
+#p-mpc .readout .val{ font-size: 1.75rem; }
+#p-mpc .readout .top button{ width: 100%; }
+#p-mpc .ms-head{ display: none; }
+#p-mpc .ms-row{ grid-template-columns: 1fr; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+#p-mpc .ms-row button{ width: 100%; }
+#p-mpc /* 窄螢幕不橫向捲表格，改成逐列堆疊 */
+  .tablewrap{ overflow-x: visible; }
+#p-mpc table{ min-width: 0; }
+#p-mpc thead{ display: none; }
+#p-mpc tbody tr{ display: block; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+#p-mpc tbody td{ display: flex; gap: 8px; border: none; padding: 1px 0; white-space: normal; }
+#p-mpc tbody td::before{
+    content: attr(data-label);
+    flex: 0 0 5.5rem;
+    color: var(--ink-dim);
+    font-size: 0.8125rem;
+    font-family: var(--font-ui);
+    font-weight: 400;
+  }
+}
+/* 外掛區塊 */
+#p-mpc .ext-head{ display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+#p-mpc .ext-title{ font: 600 0.9375rem/1.4 var(--font-ui); }
+#p-mpc .ext-list{ list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+#p-mpc .ext-list li{ border-bottom: 1px solid var(--rule); }
+#p-mpc .ext-row{
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: baseline;
+  width: 100%; min-height: 44px; padding: 12px 0;
+  background: none; border: 0; border-radius: 0; box-shadow: none;
+  text-align: left; color: inherit; cursor: pointer; font: inherit;
+}
+#p-mpc .ext-row .sum{ font: 500 0.9375rem/1.35 var(--font-val); overflow-wrap: anywhere; }
+#p-mpc .ext-row .when{ font: 400 0.8125rem/1.35 var(--font-val); color: var(--ink-dim); white-space: nowrap; }
+#p-mpc .ext-row:focus-visible{ outline: 2px solid var(--live); outline-offset: -2px; }
+#p-mpc .ext-empty{ padding: 12px 0; font-size: 0.875rem; color: var(--ink-dim); }
+#p-mpc .ext-note{ display: block; margin-top: 8px; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-mpc .ext-note.bad{ color: var(--fail); }
+#p-mpc .ext-foot{ display: flex; justify-content: flex-end; margin-top: 16px; }
+#p-mpc .ext-namerow{ display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; max-width: 24rem; }
+#p-mpc .ext-namerow label{ font-size: 0.8125rem; color: var(--ink-dim); }
+#p-mpc .ext-namerow input{
+  width: 100%; height: 44px; background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 3px; box-shadow: none;
+  padding: 0 10px; font: 500 1rem/1 var(--font-ui); color: inherit;
+}
+#p-mpc .slot{
+  display: grid; grid-template-columns: 4.75rem minmax(0, 1fr) auto;
+  gap: 8px 12px; align-items: center; padding: 8px 0;
+}
+#p-mpc .slot .no{ font: 500 0.875rem/1.3 var(--font-val); color: var(--ink-dim); }
+#p-mpc .slot .info{ display: flex; flex-direction: column; min-width: 0; }
+#p-mpc .slot .nm{ font: 600 0.9375rem/1.35 var(--font-ui); overflow-wrap: anywhere; }
+#p-mpc .slot .sub{ font: 400 0.8125rem/1.35 var(--font-val); color: var(--ink-dim); overflow-wrap: anywhere; }
+#p-mpc .slot.empty .nm{ font-weight: 400; color: var(--ink-dim); }
+#p-mpc .slot .acts{ display: flex; gap: 8px; flex: 0 0 auto; }
+#p-mpc .slot .acts button{ min-height: 36px; padding: 0 10px; font-size: 0.8125rem; }
+@media (max-width: 640px){
+#p-mpc .slot{ grid-template-columns: minmax(0, 1fr); gap: 4px; }
+#p-mpc .slot .acts{ margin-top: 4px; }
+#p-mpc .slot .acts button{ flex: 1 1 auto; min-height: 44px; }
+#p-mpc .ext-row{ grid-template-columns: minmax(0, 1fr); }
+#p-mpc .ext-row .when{ white-space: normal; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="side">
+    <h1>HRV Toolkit</h1>
+    <span class="kit">v1.1.1</span>
+    <nav class="nav" aria-label="工具 Tools">
+      <button type="button" class="navbtn" id="nav-sc" aria-pressed="false" onclick="HRV.select('sc')">String Converter</button>
+      <button type="button" class="navbtn" id="nav-tq" aria-pressed="false" onclick="HRV.select('tq')">Torque Converter</button>
+      <button type="button" class="navbtn" id="nav-nop" aria-pressed="false" onclick="HRV.select('nop')">Non-Op Test Time Calculator</button>
+      <button type="button" class="navbtn" id="nav-mpc" aria-pressed="false" onclick="HRV.select('mpc')">Milestone Progress Calculator</button>
+    </nav>
+    <!-- 關於與離線入口目前隱藏，面板與程式碼都還在，用 #about 仍進得去 -->
+    <div class="navsep" hidden></div>
+    <button type="button" class="navbtn" id="nav-about" aria-pressed="false" hidden
+      onclick="HRV.select('about')">關於與離線 About</button>
+  </aside>
+
+  <main class="main">
+<div class="panel" id="p-sc" hidden>
+  <div class="phead">
+    <span class="ptitle">String Converter</span>
+    <span class="ver" id="sc-verTag">v2.0.0</span>
+  </div>
+<section aria-labelledby="sc-h-conv">
+    <h2 id="sc-h-conv">轉換 Convert</h2>
+
+    <div class="dir">
+      <div class="field">
+        <label for="sc-from">來源 From</label>
+        <select id="sc-from" onchange="SC.onKindChange()">
+          <option value="text">Text</option>
+          <option value="hex" selected>Hex</option>
+          <option value="dec">Decimal</option>
+          <option value="oct">Octal</option>
+          <option value="bin">Binary</option>
+        </select>
+      </div>
+      <button id="sc-swap" type="button" onclick="SC.onSwap()" title="互換來源與目標" aria-label="互換來源與目標">⇄</button>
+      <div class="field">
+        <label for="sc-to">目標 To</label>
+        <select id="sc-to" onchange="SC.onKindChange()">
+          <option value="text" selected>Text</option>
+          <option value="hex">Hex</option>
+          <option value="dec">Decimal</option>
+          <option value="oct">Octal</option>
+          <option value="bin">Binary</option>
+        </select>
+      </div>
+    </div>
+
+    <textarea id="sc-in" rows="2" spellcheck="false" autocapitalize="characters"
+      autocomplete="off" inputmode="text" oninput="SC.onInput()"
+      aria-label="輸入 Input"></textarea>
+
+    <p class="mode" id="sc-modeHint"></p>
+
+    <div class="readout">
+      <div class="val empty" id="sc-out" aria-live="polite" aria-atomic="true"></div>
+      <button class="copy" type="button" id="sc-copyOut" onclick="SC.onCopy('out', this)">複製</button>
+    </div>
+    <div class="msg" id="sc-msg" aria-live="polite"></div>
+
+    <div class="opts" id="sc-opts">
+      <div class="lbl">輸出格式 Output format</div>
+      <div class="row" id="sc-styleRow"></div>
+      <div class="row" id="sc-caseRow"></div>
+    </div>
+  </section>
+
+  <section class="ext" aria-labelledby="sc-h-recent">
+    <div class="ext-head">
+      <div class="ext-title" role="heading" aria-level="2" id="sc-h-recent">最近五筆 Recent</div>
+      <button type="button" id="sc-histBtn" aria-expanded="false" onclick="HRV.hist.toggle('sc')">展開 Show</button>
+    </div>
+    <div id="sc-histWrap" hidden>
+      <ul class="ext-list" id="sc-histList"></ul>
+      <span class="ext-note" id="sc-histNote"></span>
+      <div class="ext-foot">
+        <button type="button" onclick="HRV.hist.clear('sc')">清除記錄 Clear</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="panel" id="p-tq" hidden>
+  <div class="phead">
+    <span class="ptitle">Torque Converter</span>
+    <span class="ver" id="tq-verTag">v2.0.0</span>
+  </div>
+<section aria-labelledby="tq-h-conv">
+    <div class="head">
+      <h2 id="tq-h-conv">扭力換算 Torque</h2>
+      <button type="button" onclick="TQ.onClear()">清除 Clear</button>
+    </div>
+
+    <div class="groups idle" id="tq-groups"></div>
+
+    <div class="msg" id="tq-msg" aria-live="polite"></div>
+
+    <p class="note">
+      任一欄輸入即時換算，其餘八欄同步更新。灰字是 1 N·m 的等值，供對照量級，不是換算結果。
+      顯示 6 位有效數字。全程以 N·m 為基準，換算係數採精確定義值
+      （1 lbf = 4.4482216152605 N，1 in = 25.4 mm，1 kgf = 9.80665 N）。
+    </p>
+  </section>
+
+  <section class="ext" aria-labelledby="tq-h-recent">
+    <div class="ext-head">
+      <div class="ext-title" role="heading" aria-level="2" id="tq-h-recent">最近五筆 Recent</div>
+      <button type="button" id="tq-histBtn" aria-expanded="false" onclick="HRV.hist.toggle('tq')">展開 Show</button>
+    </div>
+    <div id="tq-histWrap" hidden>
+      <ul class="ext-list" id="tq-histList"></ul>
+      <span class="ext-note" id="tq-histNote"></span>
+      <div class="ext-foot">
+        <button type="button" onclick="HRV.hist.clear('tq')">清除記錄 Clear</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="panel" id="p-nop" hidden>
+  <div class="phead">
+    <span class="ptitle">Non-Op Test Time Calculator</span>
+    <span class="ver" id="nop-verTag">v1.0.0</span>
+  </div>
+<section aria-labelledby="nop-h-cond">
+    <div class="head">
+      <h2 id="nop-h-cond">測試條件 Test conditions</h2>
+      <button type="button" onclick="NOP.onClear()">清除 Clear</button>
+    </div>
+
+    <div class="fields">
+      <div class="f">
+        <label for="nop-mode">測試類型 Test type</label>
+        <select id="nop-mode" onchange="NOP.onMode()">
+          <option value="storage">Cold and Hot Storage</option>
+          <option value="hthh">High Temp High Humidity</option>
+          <option value="tct">Thermal Cycling Test</option>
+        </select>
+      </div>
+      <div class="f">
+        <label for="nop-start">裝爐時間 Start</label>
+        <input id="nop-start" type="datetime-local" oninput="NOP.onInput()">
+      </div>
+    </div>
+
+    <!-- Cold and Hot Storage -->
+    <div class="fields" id="nop-m-storage">
+      <div class="f">
+        <label for="nop-a_lotemp">低溫 Cold <span class="unit">°C</span></label>
+        <input id="nop-a_lotemp" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f">
+        <label for="nop-a_lohours">低溫時數 <span class="unit">hr</span></label>
+        <input id="nop-a_lohours" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f">
+        <label for="nop-a_hitemp">高溫 Hot <span class="unit">°C</span></label>
+        <input id="nop-a_hitemp" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f">
+        <label for="nop-a_hihours">高溫時數 <span class="unit">hr</span></label>
+        <input id="nop-a_hihours" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+    </div>
+
+    <!-- HTHH -->
+    <div class="fields" id="nop-m-hthh" hidden>
+      <div class="f">
+        <label for="nop-b_temp">溫度 <span class="unit">°C</span></label>
+        <input id="nop-b_temp" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f">
+        <label for="nop-b_rh">相對濕度 <span class="unit">% RH</span></label>
+        <input id="nop-b_rh" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f">
+        <label for="nop-b_hours">總時數 <span class="unit">hr</span></label>
+        <input id="nop-b_hours" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f wide">
+        <label for="nop-b_marks">中途開箱點（第幾小時，留空表示中途不開箱）</label>
+        <input id="nop-b_marks" type="text" inputmode="numeric" autocomplete="off" oninput="NOP.onInput()">
+        <span class="hint">多個開箱點用逗號分隔。總時數跑完後固定開箱一次，不需在這裡填。</span>
+      </div>
+    </div>
+
+    <!-- TCT -->
+    <div class="fields" id="nop-m-tct" hidden>
+      <div class="f">
+        <label for="nop-c_lotemp">低溫 <span class="unit">°C</span></label>
+        <input id="nop-c_lotemp" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f">
+        <label for="nop-c_hitemp">高溫 <span class="unit">°C</span></label>
+        <input id="nop-c_hitemp" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f">
+        <label for="nop-c_cycles">總圈數 Cycles</label>
+        <input id="nop-c_cycles" type="text" inputmode="numeric" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f wide">
+        <label>每圈時間來源 Cycle time</label>
+        <div class="btnrow">
+          <button type="button" id="nop-cm_rate" onclick="NOP.onCycleMode('rate')">由速率與停駐時間計算</button>
+          <button type="button" id="nop-cm_direct" onclick="NOP.onCycleMode('direct')">直接輸入每圈時間</button>
+        </div>
+      </div>
+      <div class="f" data-cyc="rate">
+        <label for="nop-c_up">升溫速率 <span class="unit">°C/min</span></label>
+        <input id="nop-c_up" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f" data-cyc="rate">
+        <label for="nop-c_down">降溫速率 <span class="unit">°C/min</span></label>
+        <input id="nop-c_down" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f" data-cyc="rate">
+        <label for="nop-c_hidwell">高溫停駐 <span class="unit">min</span></label>
+        <input id="nop-c_hidwell" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f" data-cyc="rate">
+        <label for="nop-c_lodwell">低溫停駐 <span class="unit">min</span></label>
+        <input id="nop-c_lodwell" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f" data-cyc="direct" hidden>
+        <label for="nop-c_cycmin">每圈時間 <span class="unit">min</span></label>
+        <input id="nop-c_cycmin" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f wide">
+        <label for="nop-c_marks">中途開箱點（第幾圈，留空表示中途不開箱）</label>
+        <input id="nop-c_marks" type="text" inputmode="numeric" autocomplete="off" oninput="NOP.onInput()">
+        <span class="hint">多個開箱點用逗號分隔。最後一圈跑完後固定開箱一次，不需在這裡填。</span>
+      </div>
+    </div>
+
+    <div class="msg" id="nop-cycmsg" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="nop-h-cp">
+    <h2 id="nop-h-cp">開箱規則 Checkpoint rules</h2>
+    <div class="fields">
+      <div class="f">
+        <label for="nop-cp_hours">開箱時數 <span class="unit">hr</span></label>
+        <input id="nop-cp_hours" type="text" inputmode="decimal" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f">
+        <label for="nop-cp_shift">開箱時間 <span class="unit">HH:MM</span></label>
+        <input id="nop-cp_shift" type="text" inputmode="numeric" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f wide">
+        <label for="nop-cp_excl">排除日期（國定假日等，YYYY-MM-DD，可多筆）</label>
+        <textarea id="nop-cp_excl" rows="2" spellcheck="false" oninput="NOP.onInput()"></textarea>
+      </div>
+    </div>
+    <ul class="note">
+      <li>段落結束在中午 12:00 前排當天開箱，12:00 後排隔天。</li>
+      <li>週六、週日與排除日不開箱，往後推到下一個工作日。</li>
+      <li>開箱起始為該日的「段落結束時間」或「開箱時間」取晚者，開箱時數連續計算，可跨下班。</li>
+      <li>測試本身 24 小時連續進行，週末照跑；只有開箱受工作日限制。</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="nop-h-tl">
+    <h2 id="nop-h-tl">時間軸 Timeline</h2>
+    <div class="readout">
+      <div class="top">
+        <div class="grow">
+          <div class="cap" id="nop-finishCap">預計完成 Finish</div>
+          <div class="val empty" id="nop-finish" aria-live="polite"></div>
+        </div>
+        <button type="button" id="nop-copyFinish" onclick="NOP.onCopyFinish(this)">複製</button>
+      </div>
+      <div class="stats" id="nop-stats" hidden></div>
+    </div>
+    <div class="msg" id="nop-msg" aria-live="polite"></div>
+    <div class="tablewrap" id="nop-tlwrap" hidden>
+      <table>
+        <thead>
+          <tr><th>階段</th><th>開始</th><th>結束</th><th>長度</th><th>說明</th></tr>
+        </thead>
+        <tbody id="nop-tlbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="nop-h-q" id="nop-sec-q">
+    <h2 id="nop-h-q">查詢 Lookup</h2>
+    <div class="fields">
+      <div class="f">
+        <label for="nop-q_unit" id="nop-q_unit_lbl">第幾圈完成於</label>
+        <input id="nop-q_unit" type="text" inputmode="numeric" autocomplete="off" oninput="NOP.onInput()">
+      </div>
+      <div class="f">
+        <label for="nop-q_time">這個時刻已完成多少</label>
+        <input id="nop-q_time" type="datetime-local" oninput="NOP.onInput()">
+      </div>
+    </div>
+    <div class="readout spaced">
+      <div class="cap" id="nop-q1cap">指定進度的完成時刻</div>
+      <div class="val sub empty" id="nop-q1out" aria-live="polite"></div>
+      <div class="stats">
+        <div>
+          <span class="k" id="nop-q2cap">指定時刻的完成進度</span>
+          <span class="v" id="nop-q2out">—</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ext" aria-labelledby="nop-h-saves">
+    <div class="ext-head">
+      <div class="ext-title" role="heading" aria-level="2" id="nop-h-saves">存檔 Saves</div>
+    </div>
+    <div class="ext-namerow">
+      <label for="nop-saveName">存檔名稱 Name</label>
+      <input id="nop-saveName" type="text" autocomplete="off" maxlength="40"
+        placeholder="留空則以存檔時間命名">
+    </div>
+    <ul class="ext-list" id="nop-slotList"></ul>
+    <span class="ext-note" id="nop-slotNote"></span>
+    <span class="ext-note">存入才會寫進格子，不會自動存。五個格子與名稱只存在這台裝置。</span>
+  </section>
+
+  <section aria-labelledby="nop-h-about">
+    <h2 id="nop-h-about">說明 Notes</h2>
+    <ul class="note">
+      <li>所有時間以這台裝置的本地時間計算並顯示，含星期。</li>
+      <li>測試條件一律由你當場輸入，本工具不內建任何溫度、時數或圈數。輸入內容只存在這台裝置的瀏覽器裡，不上傳。</li>
+      <li>「等待工作日」列代表箱子已跑完該段落、但還沒到可以開箱的時間。這段時間會把完成日往後推，跨週末時尤其明顯。</li>
+      <li>Thermal Cycling 的每圈時間可以由升降溫速率與兩端停駐時間算出，也可以直接填入實測值。</li>
+      <li>查詢區在時間軸算出來之後才會有作用，兩個方向都會扣掉開箱與等待的時間。</li>
+    </ul>
+  </section>
+</div>
+
+<div class="panel" id="p-mpc" hidden>
+  <div class="phead">
+    <span class="ptitle">Milestone Progress Calculator</span>
+    <span class="ver" id="mpc-verTag">v1.0.0</span>
+  </div>
+<section aria-labelledby="mpc-h-period">
+    <div class="head">
+      <h2 id="mpc-h-period">期間 Period</h2>
+      <button type="button" onclick="MPC.onClear()">清除 Clear</button>
+    </div>
+    <div class="fields">
+      <div class="f">
+        <label for="mpc-start">開始日 Start</label>
+        <input id="mpc-start" type="date" oninput="MPC.onInput()">
+      </div>
+      <div class="f">
+        <label for="mpc-end">結束日 End</label>
+        <input id="mpc-end" type="date" oninput="MPC.onInput()">
+      </div>
+      <div class="f">
+        <label for="mpc-asof">基準日 As of</label>
+        <input id="mpc-asof" type="date" oninput="MPC.onInput()">
+        <span class="hint">預設今天，可改成任何一天。</span>
+      </div>
+      <div class="f wide">
+        <label for="mpc-excl">排除日期（國定假日等，YYYY-MM-DD，可多筆）</label>
+        <textarea id="mpc-excl" rows="2" spellcheck="false" oninput="MPC.onInput()"></textarea>
+        <span class="hint">多筆用逗號、空白或換行分隔。只影響工作天，不影響日曆天。</span>
+      </div>
+    </div>
+    <div class="msg" id="mpc-msg" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="mpc-h-prog">
+    <h2 id="mpc-h-prog">進度 Progress</h2>
+    <div class="readout">
+      <div class="top">
+        <div class="grow">
+          <div class="cap" id="mpc-progCap">完成度（日曆天）</div>
+          <div class="val empty" id="mpc-prog" aria-live="polite"></div>
+        </div>
+        <button type="button" id="mpc-copySum" onclick="MPC.onCopySummary(this)">複製摘要</button>
+      </div>
+      <div id="mpc-barWrap" hidden>
+        <div class="track" aria-hidden="true">
+          <div class="fill" id="mpc-fill"></div>
+        </div>
+        <div class="track-ends">
+          <span id="mpc-endLeft"></span>
+          <span id="mpc-endRight"></span>
+        </div>
+      </div>
+      <div class="stats" id="mpc-stats" hidden></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="mpc-h-ms">
+    <div class="head">
+      <h2 id="mpc-h-ms">里程碑 Milestones</h2>
+      <button type="button" onclick="MPC.onAddMilestone()">新增里程碑</button>
+    </div>
+    <div class="ms-head">
+      <span>名稱（例如 GO、EVT build）</span>
+      <span>日期</span>
+      <span></span>
+    </div>
+    <div id="mpc-msRows"></div>
+    <div class="tablewrap" id="mpc-msTableWrap" hidden>
+      <table>
+        <thead>
+          <tr><th>里程碑</th><th>日期</th><th>開始到此</th><th>距基準日</th><th>完成度</th></tr>
+        </thead>
+        <tbody id="mpc-msBody"></tbody>
+      </table>
+    </div>
+    <div class="msg" id="mpc-msMsg" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="mpc-h-rev">
+    <h2 id="mpc-h-rev">反推 Reverse</h2>
+    <div class="fields">
+      <div class="f">
+        <label for="mpc-pct">想知道的完成度 <span class="unit">%</span></label>
+        <input id="mpc-pct" type="text" inputmode="decimal" autocomplete="off" oninput="MPC.onInput()">
+      </div>
+    </div>
+    <div class="readout spaced">
+      <div class="cap">以日曆天反推的日期</div>
+      <div class="val sub empty" id="mpc-revCal" aria-live="polite"></div>
+      <div class="stats">
+        <div>
+          <span class="k">以工作天反推的日期</span>
+          <span class="v" id="mpc-revWd">—</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ext" aria-labelledby="mpc-h-saves">
+    <div class="ext-head">
+      <div class="ext-title" role="heading" aria-level="2" id="mpc-h-saves">存檔 Saves</div>
+    </div>
+    <div class="ext-namerow">
+      <label for="mpc-saveName">存檔名稱 Name</label>
+      <input id="mpc-saveName" type="text" autocomplete="off" maxlength="40"
+        placeholder="留空則以存檔時間命名">
+    </div>
+    <ul class="ext-list" id="mpc-slotList"></ul>
+    <span class="ext-note" id="mpc-slotNote"></span>
+    <span class="ext-note">存入才會寫進格子，不會自動存。五個格子與名稱只存在這台裝置。</span>
+  </section>
+
+  <section aria-labelledby="mpc-h-about">
+    <h2 id="mpc-h-about">說明 Notes</h2>
+    <ul class="note">
+      <li><b>天數以日期差計算</b>：開始日為 0%、結束日為 100%。9/4 到 9/30 是 26 天，不是 27 天。</li>
+      <li><b>工作天含起日、不含迄日</b>，與完成度的定義一致。9/4 到 9/30 有 18 個工作天。若你們的算法是含頭尾，告訴我改。</li>
+      <li>工作天扣掉週六、週日與排除日期；日曆天不扣。</li>
+      <li>所有日期以這台裝置的本地時間判斷，含星期。</li>
+      <li>「複製摘要」給的是一行純文字，可直接貼進週報或 Jira。</li>
+      <li>輸入內容只存在這台裝置的瀏覽器裡，不上傳。</li>
+    </ul>
+  </section>
+</div>
+
+    <div class="panel" id="p-about" hidden>
+      <div class="phead">
+        <span class="ptitle">關於與離線 About</span>
+        <span class="ver">v1.1.1</span>
+      </div>
+
+      <section aria-labelledby="h-ver">
+        <h2 id="h-ver">版本 Versions</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>工具</th><th>版號</th></tr></thead>
+            <tbody>
+              <tr><td data-label="工具">String Converter</td><td class="t" data-label="版號">v2.0.0</td></tr>
+              <tr><td data-label="工具">Torque Converter</td><td class="t" data-label="版號">v2.0.0</td></tr>
+              <tr><td data-label="工具">Non-Op Test Time Calculator</td><td class="t" data-label="版號">v3.0.0</td></tr>
+              <tr><td data-label="工具">Milestone Progress Calculator</td><td class="t" data-label="版號">v1.0.0</td></tr>
+              <tr><td data-label="工具">hrv-toolkit.html</td><td class="t" data-label="版號">v1.1.1</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="state">
+          <span class="k">換算自我檢查</span>
+          <span class="v" id="testSummary">檢查中</span>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-off">
+        <h2 id="h-off">離線使用 Offline</h2>
+        <ul class="note">
+          <li>用手機瀏覽器開啟本頁，選「加到主畫面」或「安裝應用程式」，之後在 Lab、Chamber 房或機房沒有網路也能用。</li>
+          <li>四支工具都在這一個檔案裡，安裝後全部可離線運作。</li>
+          <li>所有運算都在瀏覽器端完成，不會發出任何網路請求，輸入內容不離開裝置。</li>
+          <li>各工具記住的偏好與上次輸入只存在該裝置的瀏覽器裡，換裝置不會同步。</li>
+        </ul>
+        <div class="state">
+          <span class="k">離線快取狀態</span>
+          <span class="v" id="swState">檢查中</span>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-notes">
+        <h2 id="h-notes">維護 Maintenance</h2>
+        <ul class="note">
+          <li>載入時會自動跑一次四支工具的換算邏輯自我檢查。全部通過時不顯示任何東西；只要有一項不符預期，內容區就會跳出紅框並列出是哪一支工具的哪一項。<b>看到紅框就不要採用它算出來的數字。</b></li>
+          <li>工具內建的常數只有公開標準（單位換算係數、ASCII 表）。所有測試條件、溫度、時數、規格值都由使用者當場輸入。</li>
+          <li><b>更新這個檔案後要一起改 sw.js 裡的 CACHE 版本號</b>，否則已安裝的裝置會繼續用舊的快取版本。</li>
+          <li>String / Torque 在換算完靜置三分鐘後會自動記下該組輸入，最多五筆；Non-Op / Milestone 有五個需要手動存入的具名存檔格。兩者都只存在這台裝置的瀏覽器裡。</li>
+          <li>依《HW Reliability Toolkit 共用規格》建置。</li>
+        </ul>
+      </section>
+    </div>
+
+    <div id="hrvTestFail" hidden role="alert"></div>
+
+    <div class="foot">
+      Hardware Reliability Validation Toolkit　全部運算在瀏覽器端完成，不發出任何網路請求，輸入內容不離開這台裝置。
+    </div>
+  </main>
+</div>
+
+<script>
+var SC = (function(){
+
+// ===== CORE =====
+// 純函式區塊，不碰 DOM。全部可由 self-test 直接呼叫。
+// 回傳慣例：{ ok:true, ... } 或 { ok:false, error:'...' }，不 throw。
+
+var RADIX = {
+  bin: { base:  2, name: 'Binary',  digits: '01',               pad: 8, prefix: '0b', group: 16 },
+  oct: { base:  8, name: 'Octal',   digits: '01234567',         pad: 3, prefix: '0o', group:  6 },
+  dec: { base: 10, name: 'Decimal', digits: '0123456789',       pad: 0, prefix: '',   group:  0 },
+  hex: { base: 16, name: 'Hex',     digits: '0123456789abcdef', pad: 2, prefix: '0x', group:  4 }
+};
+
+var STYLES = [
+  { id: 'prefixed', label: '0x49 0x50' },
+  { id: 'spaced',   label: '49 50' },
+  { id: 'packed',   label: '4950' },
+  { id: 'escaped',  label: '\\x49\\x50' },
+  { id: 'carray',   label: '{0x49, 0x50}' }
+];
+
+function ok(o){ o.ok = true; return o; }
+function err(m){ return { ok: false, error: m }; }
+
+// 是否為位元組模式：任一端是 Text 時，資料必須逐位元組對應
+function isByteMode(from, to){ return from === 'text' || to === 'text'; }
+
+// 去掉分隔符號與前置詞。x / b / o 都不是對應進位的合法數字，
+// 因此整段替換不會誤傷資料（0x0B 的 0B 會保留）。
+function cleanInput(str, kind){
+  var t = String(str).replace(/[,;:{}\[\]()]/g, ' ').replace(/[\r\n\t]/g, ' ');
+  if (kind === 'hex') t = t.replace(/\\x/gi, ' ').replace(/0x/gi, ' ');
+  if (kind === 'bin') t = t.replace(/\\b/gi, ' ').replace(/0b/gi, ' ');
+  if (kind === 'oct') t = t.replace(/0o/gi, ' ');
+  if (kind === 'dec') t = t.replace(/_/g, '');
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+function tokenize(str, kind){
+  var c = cleanInput(str, kind);
+  return c === '' ? [] : c.split(' ');
+}
+
+function ordinalChar(n){ return '第 ' + n + ' 個字元'; }
+
+// 檢查字元集，回傳第一個非法字元的位置（1-based），合法則回 0
+function badDigitAt(s, kind){
+  var set = RADIX[kind].digits;
+  for (var i = 0; i < s.length; i++){
+    if (set.indexOf(s[i].toLowerCase()) === -1) return i + 1;
+  }
+  return 0;
+}
+
+function chunk(s, n){
+  var out = [];
+  for (var i = 0; i < s.length; i += n) out.push(s.slice(i, i + n));
+  return out;
+}
+
+function hex2(n){ return n.toString(16).toUpperCase().padStart(2, '0'); }
+
+// ---- 位元組模式解析：任一輸入 -> byte 陣列 ----
+function parseBytes(input, kind){
+  if (kind === 'text') return parseTextToBytes(input);
+
+  var toks = tokenize(input, kind);
+  if (toks.length === 0) return ok({ bytes: [] });
+
+  if (kind === 'hex' || kind === 'bin'){
+    var joined = toks.join('');
+    var bad = badDigitAt(joined, kind);
+    if (bad) return err('含非 ' + RADIX[kind].name + " 字元 '" +
+                        joined[bad - 1] + "'（" + ordinalChar(bad) + '）');
+    if (kind === 'hex'){
+      if (joined.length % 2 !== 0)
+        return err('Hex 需要偶數個字元，目前 ' + joined.length + ' 個');
+      return ok({ bytes: chunk(joined, 2).map(function(h){ return parseInt(h, 16); }) });
+    }
+    if (joined.length % 8 !== 0)
+      return err('Binary 需要 8 的倍數個位元，目前 ' + joined.length + ' 個');
+    return ok({ bytes: chunk(joined, 8).map(function(b){ return parseInt(b, 2); }) });
+  }
+
+  // oct / dec：逐項處理，項目本身就是一個位元組
+  var bytes = [];
+  for (var i = 0; i < toks.length; i++){
+    var t = toks[i];
+    var badi = badDigitAt(t, kind);
+    if (badi) return err('含非 ' + RADIX[kind].name + " 字元 '" +
+                         t[badi - 1] + "'（" + RADIX[kind].name + ' 第 ' + (i + 1) + ' 項）');
+    var parts = (kind === 'oct' && t.length > 3) ? chunk(t, 3) : [t];
+    for (var j = 0; j < parts.length; j++){
+      var v = parseInt(parts[j], RADIX[kind].base);
+      if (v > 255){
+        if (kind === 'oct')
+          return err('八進位 ' + parts[j] + ' 超出單一位元組範圍 (0-377)');
+        return err('十進位 ' + parts[j] + ' 超出單一位元組範圍 (0-255)');
+      }
+      bytes.push(v);
+    }
+  }
+  return ok({ bytes: bytes });
+}
+
+function parseTextToBytes(input){
+  var chars = Array.from(String(input));
+  var bytes = [];
+  for (var i = 0; i < chars.length; i++){
+    var cp = chars[i].codePointAt(0);
+    if (cp > 127)
+      return err("'" + chars[i] + "' 超出 ASCII 範圍 (0-127)，" + ordinalChar(i + 1));
+    bytes.push(cp);
+  }
+  return ok({ bytes: bytes });
+}
+
+// ---- 位元組陣列 -> 輸出 ----
+function bytesToText(bytes){
+  var s = '', ctrl = 0;
+  for (var i = 0; i < bytes.length; i++){
+    var b = bytes[i];
+    if (b > 127)
+      return err('位元組 ' + hex2(b) + ' 超出 ASCII 範圍 (00-7F)，第 ' + (i + 1) + ' 個位元組');
+    if (b < 0x20 || b === 0x7F){ s += '\\x' + hex2(b); ctrl++; }
+    else s += String.fromCharCode(b);
+  }
+  return ok({ output: s, ctrl: ctrl });
+}
+
+function bytesToTokens(bytes, kind){
+  var r = RADIX[kind];
+  return bytes.map(function(b){
+    var s = b.toString(r.base);
+    return r.pad ? s.padStart(r.pad, '0') : s;
+  });
+}
+
+// ---- 數值模式：每個項目獨立換算，不受位元組寬度限制 ----
+function bigFromDigits(s, base){
+  var B = BigInt(base), v = 0n;
+  for (var i = 0; i < s.length; i++) v = v * B + BigInt(parseInt(s[i], base));
+  return v;
+}
+
+function parseNumbers(input, kind){
+  var toks = tokenize(input, kind);
+  if (toks.length === 0) return ok({ vals: [] });
+  var vals = [];
+  for (var i = 0; i < toks.length; i++){
+    var t = toks[i];
+    if (t[0] === '-' || t[0] === '+')
+      return err('數值模式不支援正負號，請改用位元組模式或去掉符號');
+    var bad = badDigitAt(t, kind);
+    if (bad) return err('含非 ' + RADIX[kind].name + " 字元 '" +
+                        t[bad - 1] + "'（" + RADIX[kind].name + ' 第 ' + (i + 1) + ' 項）');
+    vals.push(bigFromDigits(t.toLowerCase(), RADIX[kind].base));
+  }
+  return ok({ vals: vals });
+}
+
+function numbersToTokens(vals, kind){
+  return vals.map(function(v){ return v.toString(RADIX[kind].base); });
+}
+
+// ---- 輸出格式 ----
+function styleAvailable(styleId, kind, byteMode){
+  if (kind === 'text') return false;
+  if (styleId === 'spaced' || styleId === 'carray') return true;
+  if (styleId === 'prefixed') return kind !== 'dec';
+  if (styleId === 'packed')   return byteMode && kind !== 'dec';
+  if (styleId === 'escaped')  return byteMode && (kind === 'hex' || kind === 'oct');
+  return false;
+}
+
+function applyCase(s, upper){ return upper ? s.toUpperCase() : s.toLowerCase(); }
+
+function formatTokens(tokens, kind, styleId, upper){
+  var r = RADIX[kind];
+  var t = (kind === 'hex') ? tokens.map(function(x){ return applyCase(x, upper); }) : tokens.slice();
+  var pfx = (kind === 'hex' && !upper) ? r.prefix : (kind === 'hex' ? '0x' : r.prefix);
+  if (tokens.length === 0) return '';
+  switch (styleId){
+    case 'spaced':   return t.join(' ');
+    case 'prefixed': return t.map(function(x){ return pfx + x; }).join(' ');
+    case 'packed':   return (r.group ? chunk(t.join(''), r.group).join(' ') : t.join(''));
+    case 'escaped':  return t.map(function(x){
+                       return (kind === 'hex' ? '\\x' : '\\') + x; }).join('');
+    case 'carray':   return '{' + t.map(function(x){ return pfx + x; }).join(', ') + '}';
+  }
+  return t.join(' ');
+}
+
+// ---- 對外唯一組合函式 ----
+function convert(from, to, input, opt){
+  opt = opt || {};
+  var style = opt.style || 'spaced';
+  var upper = opt.upper !== false;
+  var byteMode = isByteMode(from, to);
+
+  if (String(input).trim() === '')
+    return ok({ output: '', byteMode: byteMode, count: 0, note: '' });
+
+  if (byteMode){
+    var p = parseBytes(input, from);
+    if (!p.ok) return p;
+    var bytes = p.bytes;
+    if (to === 'text'){
+      var t = bytesToText(bytes);
+      if (!t.ok) return t;
+      return ok({
+        output: t.output, byteMode: true, count: bytes.length,
+        note: t.ctrl ? ('含 ' + t.ctrl + ' 個控制字元，以 \\xNN 轉義顯示') : ''
+      });
+    }
+    var toks = bytesToTokens(bytes, to);
+    var st = styleAvailable(style, to, true) ? style : 'spaced';
+    return ok({
+      output: formatTokens(toks, to, st, upper),
+      byteMode: true, count: bytes.length, note: ''
+    });
+  }
+
+  var n = parseNumbers(input, from);
+  if (!n.ok) return n;
+  var st2 = styleAvailable(style, to, false) ? style : 'spaced';
+  return ok({
+    output: formatTokens(numbersToTokens(n.vals, to), to, st2, upper),
+    byteMode: false, count: n.vals.length, note: ''
+  });
+}
+
+// ---- 說明文字與空狀態範例 ----
+function modeText(from, to){
+  if (isByteMode(from, to)){
+    if (from === 'hex') return { mode: '位元組模式', hint: 'Hex 兩位一組，總字元數需為偶數' };
+    if (from === 'bin') return { mode: '位元組模式', hint: 'Binary 八位一組，總位元數需為 8 的倍數' };
+    if (from === 'oct') return { mode: '位元組模式', hint: '每項為一個位元組，範圍 0-377' };
+    if (from === 'dec') return { mode: '位元組模式', hint: '每項為一個位元組，範圍 0-255' };
+    return { mode: '位元組模式', hint: '每個字元需在 ASCII 範圍 0-127 內' };
+  }
+  return { mode: '數值模式', hint: '每個以空白分隔的項目獨立換算，不受位元組寬度限制' };
+}
+
+function placeholderFor(kind){
+  if (kind === 'text') return 'IPMI';
+  if (kind === 'hex')  return '49 50 4D 49';
+  if (kind === 'dec')  return '73 80 77 73';
+  if (kind === 'oct')  return '111 120 115 111';
+  return '01001001 01010000 01001101 01001001';
+}
+
+// ---- IPMI 常用小工具保留給後續版本，本版不含 ----
+
+// ===== TESTS =====
+var V = function(r){ return r.ok ? r.output : 'ERROR'; };
+var E = function(r){ return r.ok ? 'NO ERROR' : r.error; };
+var C = function(from, to, input, style, upper){
+  return convert(from, to, input, { style: style || 'spaced', upper: upper !== false });
+};
+
+var TESTS = [
+  { name: 'ASCII: IPMI → hex',        fn: function(){ return V(C('text','hex','IPMI')); }, want: '49 50 4D 49' },
+  { name: 'hex → ASCII',              fn: function(){ return V(C('hex','text','49 50 4D 49')); }, want: 'IPMI' },
+  { name: 'ASCII 超界：溫 → hex',      fn: function(){ return E(C('text','hex','溫')); }, want: "'溫' 超出 ASCII 範圍 (0-127)，第 1 個字元" },
+  { name: 'hex 超界：E6 → text',       fn: function(){ return E(C('hex','text','E6 BA AB')); }, want: '位元組 E6 超出 ASCII 範圍 (00-7F)，第 1 個位元組' },
+  { name: 'text → decimal',           fn: function(){ return V(C('text','dec','IPMI')); }, want: '73 80 77 73' },
+  { name: 'decimal → text',           fn: function(){ return V(C('dec','text','73 80 77 73')); }, want: 'IPMI' },
+  { name: 'text → octal',             fn: function(){ return V(C('text','oct','IPMI')); }, want: '111 120 115 111' },
+  { name: 'octal → text',             fn: function(){ return V(C('oct','text','111 120 115 111')); }, want: 'IPMI' },
+  { name: 'text → binary',            fn: function(){ return V(C('text','bin','IP')); }, want: '01001001 01010000' },
+  { name: 'binary → text',            fn: function(){ return V(C('bin','text','01001001 01010000')); }, want: 'IP' },
+  { name: '容錯：{0x49, 0x50} 同 49 50', fn: function(){ return V(C('hex','text','{0x49, 0x50}')) === V(C('hex','text','49 50')); }, want: true },
+  { name: '容錯：跨行貼上',            fn: function(){ return V(C('hex','text','49\n50\n4D\n49')); }, want: 'IPMI' },
+  { name: '容錯：\\x 轉義貼上',        fn: function(){ return V(C('hex','text','\\x49\\x50\\x4d\\x49')); }, want: 'IPMI' },
+  { name: '容錯：逗號分隔',            fn: function(){ return V(C('hex','text','49,50,4D,49')); }, want: 'IPMI' },
+  { name: '容錯：連續無分隔',          fn: function(){ return V(C('hex','text','49504D49')); }, want: 'IPMI' },
+  { name: '奇數長度報錯',              fn: function(){ return E(C('hex','text','495')); }, want: 'Hex 需要偶數個字元，目前 3 個' },
+  { name: '非 hex 字元報錯',           fn: function(){ return E(C('hex','text','49 5G')); }, want: "含非 Hex 字元 'G'（第 4 個字元）" },
+  { name: 'binary 非 8 倍數報錯',      fn: function(){ return E(C('bin','text','0100100')); }, want: 'Binary 需要 8 的倍數個位元，目前 7 個' },
+  { name: 'decimal 超出位元組',        fn: function(){ return E(C('dec','text','300')); }, want: '十進位 300 超出單一位元組範圍 (0-255)' },
+  { name: 'octal 超出位元組',          fn: function(){ return E(C('oct','text','400')); }, want: '八進位 400 超出單一位元組範圍 (0-377)' },
+  { name: '格式：空白分隔 + 0x',       fn: function(){ return V(C('text','hex','IPMI','prefixed')); }, want: '0x49 0x50 0x4D 0x49' },
+  { name: '格式：空白分隔',            fn: function(){ return V(C('text','hex','IPMI','spaced')); }, want: '49 50 4D 49' },
+  { name: '格式：連續',                fn: function(){ return V(C('text','hex','IPMI','packed')); }, want: '4950 4D49' },
+  { name: '格式：轉義',                fn: function(){ return V(C('text','hex','IPMI','escaped')); }, want: '\\x49\\x50\\x4D\\x49' },
+  { name: '格式：C 陣列',              fn: function(){ return V(C('text','hex','IPMI','carray')); }, want: '{0x49, 0x50, 0x4D, 0x49}' },
+  { name: '格式：小寫',                fn: function(){ return V(C('text','hex','IPMI','prefixed', false)); }, want: '0x49 0x50 0x4d 0x49' },
+  { name: '數值模式：hex 495 → dec',   fn: function(){ return V(C('hex','dec','495')); }, want: '1173' },
+  { name: '數值模式：dec 300 → hex',   fn: function(){ return V(C('dec','hex','300')); }, want: '12C' },
+  { name: '數值模式：dec 255 → bin',   fn: function(){ return V(C('dec','bin','255')); }, want: '11111111' },
+  { name: '數值模式：64-bit 全 F',     fn: function(){ return V(C('hex','dec','FFFFFFFFFFFFFFFF')); }, want: '18446744073709551615' },
+  { name: '數值模式不支援負號',        fn: function(){ return E(C('dec','hex','-1')); }, want: '數值模式不支援正負號，請改用位元組模式或去掉符號' },
+  { name: '控制字元以轉義顯示',        fn: function(){ return V(C('hex','text','00 41 7F')); }, want: '\\x00A\\x7F' },
+  { name: 'Hex → Hex 重新格式化',      fn: function(){ return V(C('hex','hex','49,50','prefixed')); }, want: '0x49 0x50' },
+  { name: 'Text → Text 直通',          fn: function(){ return V(C('text','text','IPMI')); }, want: 'IPMI' },
+  { name: '空輸入不報錯',              fn: function(){ return V(C('hex','text','   ')); }, want: '' }
+];
+
+function runTests(){
+  return TESTS.map(function(t){
+    var got, pass;
+    try { got = t.fn(); } catch (e){ got = 'THREW: ' + e.message; }
+    if (typeof t.want === 'number' && typeof got === 'number' && t.tol != null)
+      pass = Math.abs(got - t.want) <= t.tol;
+    else pass = String(got) === String(t.want);
+    return { name: t.name, want: String(t.want), got: String(got), pass: pass };
+  });
+}
+
+// ===== END CORE =====
+
+// ===== DOM =====
+var VERSION = '2.0.0';
+
+var store = {
+  get: function(k, fallback){
+    try { var v = localStorage.getItem(k); return v === null ? fallback : JSON.parse(v); }
+    catch (e){ return fallback; }
+  },
+  set: function(k, v){
+    try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e){ return false; }
+  }
+};
+
+var state = {
+  from: store.get('sc.from', 'hex'),
+  to: store.get('sc.to', 'text'),
+  style: store.get('sc.style', 'spaced'),
+  upper: store.get('sc.upper', true),
+  input: ''
+};
+
+var PFX = 'sc-';
+var $ = function(id){ return document.getElementById(PFX + id); };
+
+function renderStyleRow(){
+  var box = $('opts');
+  if (state.to === 'text'){ box.hidden = true; return; }
+  box.hidden = false;
+  var byteMode = isByteMode(state.from, state.to);
+  $('styleRow').innerHTML = STYLES.map(function(s){
+    var avail = styleAvailable(s.id, state.to, byteMode);
+    var on = avail && state.style === s.id;
+    var shown = s.label;
+    if (state.to !== 'hex'){
+      var ex = { prefixed: RADIX[state.to].prefix + '73', spaced: '73 80',
+                 packed: '7380', escaped: '\\111', carray: '{73, 80}' };
+      shown = ex[s.id] || s.label;
+      if (state.to === 'bin'){
+        var exb = { prefixed: '0b01001001', spaced: '01001001 01010000',
+                    packed: '0100100101010000', escaped: '-', carray: '{0b01001001}' };
+        shown = exb[s.id] || s.label;
+      }
+      if (state.to === 'oct'){
+        var exo = { prefixed: '0o111', spaced: '111 120', packed: '111120',
+                    escaped: '\\111\\120', carray: '{0o111, 0o120}' };
+        shown = exo[s.id] || s.label;
+      }
+    }
+    return '<button type="button" aria-pressed="' + (on ? 'true' : 'false') + '"' +
+      (avail ? '' : ' disabled title="此格式不適用於目前的目標進位或模式"') +
+      ' onclick="SC.onStyle(\'' + s.id + '\')">' + escapeHtml(shown) + '</button>';
+  }).join('');
+
+  $('caseRow').innerHTML = state.to === 'hex'
+    ? '<span class="lbl">大小寫 Case</span>' +
+      '<button type="button" aria-pressed="' + (state.upper ? 'true' : 'false') +
+      '" onclick="SC.onCase(true)">大寫 ABCDEF</button>' +
+      '<button type="button" aria-pressed="' + (!state.upper ? 'true' : 'false') +
+      '" onclick="SC.onCase(false)">小寫 abcdef</button>'
+    : '';
+}
+
+function escapeHtml(s){
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderAll(){
+  $('from').value = state.from;
+  $('to').value = state.to;
+  $('verTag').textContent = 'v' + VERSION;
+
+  var m = modeText(state.from, state.to);
+  $('modeHint').innerHTML = '<b>' + m.mode + '</b>：' + escapeHtml(m.hint);
+  $('in').placeholder = placeholderFor(state.from);
+  $('in').setAttribute('autocapitalize', state.from === 'hex' ? 'characters' : 'off');
+
+  renderStyleRow();
+
+  var r = convert(state.from, state.to, state.input, { style: state.style, upper: state.upper });
+  var out = $('out'), msg = $('msg');
+
+  if (!r.ok){
+    out.textContent = '—';
+    out.className = 'val empty';
+    msg.className = 'msg err';
+    msg.innerHTML = '<span class="tag">錯誤</span> ' + escapeHtml(r.error);
+    $('copyOut').disabled = true;
+  } else if (r.output === ''){
+    out.textContent = placeholderFor(state.to);
+    out.className = 'val empty';
+    msg.className = 'msg';
+    msg.textContent = '';
+    $('copyOut').disabled = true;
+  } else {
+    out.textContent = r.output;
+    out.className = 'val' + (r.output.length > 24 ? ' long' : '');
+    $('copyOut').disabled = false;
+    if (r.note){
+      msg.className = 'msg warn';
+      msg.innerHTML = '<span class="tag">注意</span> ' + escapeHtml(r.note);
+    } else {
+      msg.className = 'msg';
+      msg.textContent = r.byteMode ? (r.count + ' bytes') : (r.count + ' 項');
+    }
+  }
+}
+
+function onKindChange(){
+  state.from = $('from').value;
+  state.to = $('to').value;
+  store.set('sc.from', state.from);
+  store.set('sc.to', state.to);
+  if (!styleAvailable(state.style, state.to, isByteMode(state.from, state.to)))
+    state.style = 'spaced';
+  renderAll();
+}
+
+function onSwap(){
+  var f = state.from;
+  state.from = state.to;
+  state.to = f;
+  store.set('sc.from', state.from);
+  store.set('sc.to', state.to);
+  // 把當前輸出搬成新的輸入，方便來回核對
+  var r = convert(f, state.from, state.input, { style: 'spaced', upper: state.upper });
+  if (r.ok && r.output !== '') { state.input = r.output; $('in').value = r.output; }
+  if (!styleAvailable(state.style, state.to, isByteMode(state.from, state.to)))
+    state.style = 'spaced';
+  renderAll();
+}
+
+function onInput(){ state.input = $('in').value; renderAll(); }
+
+// ---- 供外殼的「最近五筆」使用 ----
+function kindName(k){ return k === 'text' ? 'Text' : RADIX[k].name; }
+
+function snapshot(){
+  return { from: state.from, to: state.to, style: state.style, upper: state.upper, input: state.input };
+}
+
+function restore(o){
+  if (!o) return;
+  state.from = o.from || state.from;
+  state.to = o.to || state.to;
+  state.style = o.style || state.style;
+  state.upper = o.upper !== false;
+  state.input = typeof o.input === 'string' ? o.input : '';
+  $('in').value = state.input;
+  store.set('sc.from', state.from);
+  store.set('sc.to', state.to);
+  store.set('sc.style', state.style);
+  store.set('sc.upper', state.upper);
+  renderAll();
+}
+
+function summary(){
+  if (String(state.input).trim() === '') return '';
+  var r = convert(state.from, state.to, state.input, { style: state.style, upper: state.upper });
+  if (!r.ok || r.output === '') return '';
+  return kindName(state.from) + ' \u2192 ' + kindName(state.to) + '\u3000' +
+         String(state.input).replace(/\s+/g, ' ').trim();
+}
+
+function onStyle(id){
+  state.style = id;
+  store.set('sc.style', id);
+  renderAll();
+}
+
+function onCase(up){
+  state.upper = up;
+  store.set('sc.upper', up);
+  renderAll();
+}
+
+function onCopy(id, btn){
+  var text = $(id).textContent;
+  var done = function(){
+    var old = btn.textContent;
+    btn.textContent = '已複製';
+    setTimeout(function(){ btn.textContent = old; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done, function(){ legacyCopy(text, done); });
+  } else legacyCopy(text, done);
+}
+
+function legacyCopy(text, done){
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    done();
+  } catch (e){ /* 複製失敗時不干擾轉換結果 */ }
+}
+
+// 自我檢查在載入時靜默執行：全過就完全不顯示，有錯才跳出警示列。
+// 換算邏輯的第一道防線，不佔版面。
+function checkSelfTest(){
+  var rows = runTests();
+  var failed = rows.filter(function(r){ return !r.pass; });
+  var box = $('testFail');
+  if (failed.length === 0){ box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<b>換算自我檢查失敗：' + failed.length + '/' + rows.length +
+    ' 項不符預期，結果可能不可信。</b><ul>' +
+    failed.map(function(r){
+      return '<li>' + escapeHtml(r.name) + ' — want ' + escapeHtml(r.want) +
+             ', got ' + escapeHtml(r.got) + '</li>';
+    }).join('') + '</ul>';
+}
+
+renderAll();
+
+return { onKindChange: onKindChange, onSwap: onSwap, onInput: onInput, onCopy: onCopy, onStyle: onStyle, onCase: onCase, snapshot: snapshot, restore: restore, summary: summary, runTests: runTests, TESTS: TESTS };
+})();
+
+var TQ = (function(){
+
+// ===== CORE =====
+// 純函式區塊，不碰 DOM。全部可由 self-test 直接呼叫。
+// 回傳慣例：可能失敗的函式回傳 { ok:true, ... } 或 { ok:false, error:'...' }，不 throw。
+
+// 精確定義值（不用四捨五入後的近似）
+var LBF = 4.4482216152605;   // N，精確
+var OZF = LBF / 16;          // N，精確
+var KGF = 9.80665;           // N，精確
+var GF  = KGF / 1000;        // N，精確
+var IN  = 0.0254;            // m，精確
+var FT  = 0.3048;            // m，精確（12 in）
+var CM  = 0.01;              // m，精確
+
+// 單一基準單位：N·m。所有單位都經由它轉換，不寫 9x9 對照表。
+var UNITS = [
+  { id: 'mNm',   label: 'mN·m',   group: 'si',  toBase: 1e-3 },
+  { id: 'cNm',   label: 'cN·m',   group: 'si',  toBase: 1e-2 },
+  { id: 'Nm',    label: 'N·m',    group: 'si',  toBase: 1 },
+  { id: 'ozfin', label: 'ozf·in', group: 'imp', toBase: OZF * IN },
+  { id: 'lbfin', label: 'lbf·in', group: 'imp', toBase: LBF * IN },
+  { id: 'lbfft', label: 'lbf·ft', group: 'imp', toBase: LBF * FT },
+  { id: 'gfcm',  label: 'gf·cm',  group: 'kgf', toBase: GF * CM },
+  { id: 'kgfcm', label: 'kgf·cm', group: 'kgf', toBase: KGF * CM },
+  { id: 'kgfm',  label: 'kgf·m',  group: 'kgf', toBase: KGF }
+];
+
+var GROUPS = [
+  { id: 'si',  title: '公制 SI' },
+  { id: 'imp', title: '英制 Imperial' },
+  { id: 'kgf', title: '公斤力 Gravitational' }
+];
+
+function unitOf(id){
+  for (var i = 0; i < UNITS.length; i++) if (UNITS[i].id === id) return UNITS[i];
+  return null;
+}
+
+function ok(o){ o.ok = true; return o; }
+function err(m){ return { ok: false, error: m }; }
+
+// 輸入清理：去前後空白、千分位逗號、底線、全形空白
+function cleanNumber(str){
+  return String(str).replace(/[\s　]/g, '').replace(/,/g, '').replace(/_/g, '');
+}
+
+function parseNumber(str){
+  var s = cleanNumber(str);
+  if (s === '') return ok({ value: null });
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)){
+    var bad = s.replace(/[0-9eE+\-.]/g, '')[0];
+    if (bad) return err("含非數字字元 '" + bad + "'，只能輸入數字、小數點與正負號");
+    return err('不是完整的數字，例如 8.5 或 0.96');
+  }
+  var v = Number(s);
+  if (!isFinite(v)) return err('數值過大，超出可計算範圍');
+  return ok({ value: v });
+}
+
+// 換算：先進基準，再出目標。內部全程浮點，只在顯示時 round。
+function toBase(value, unitId){
+  var u = unitOf(unitId);
+  return u === null ? NaN : value * u.toBase;
+}
+
+function fromBase(base, unitId){
+  var u = unitOf(unitId);
+  return u === null ? NaN : base / u.toBase;
+}
+
+function convertTorque(value, fromId, toId){
+  return fromBase(toBase(value, fromId), toId);
+}
+
+// 顯示用格式化：N 位有效數字，去尾零，不出現浮點雜訊
+function formatSig(x, digits){
+  if (x === null || x === undefined || !isFinite(x)) return '';
+  if (x === 0) return '0';
+  var a = Math.abs(x);
+  var s;
+  if (a >= 1e12 || a < 1e-9){
+    s = x.toExponential(digits - 1);
+    return s.replace(/\.?0+e/, 'e');
+  }
+  s = x.toPrecision(digits);
+  if (s.indexOf('e') !== -1){
+    var dec = digits - 1 - Math.floor(Math.log10(a));
+    s = x.toFixed(Math.max(0, Math.min(100, dec)));
+  }
+  if (s.indexOf('.') !== -1) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return s;
+}
+
+// 一次算出九個單位的顯示字串（不含當前輸入端，由 DOM 層決定是否覆寫）
+function convertAll(value, fromId, digits){
+  var out = {};
+  if (value === null){
+    for (var i = 0; i < UNITS.length; i++) out[UNITS[i].id] = '';
+    return out;
+  }
+  var base = toBase(value, fromId);
+  for (var j = 0; j < UNITS.length; j++){
+    out[UNITS[j].id] = formatSig(fromBase(base, UNITS[j].id), digits);
+  }
+  return out;
+}
+
+// 空狀態提示：1 N·m 在各單位的等值，供對照量級
+function referenceRow(digits){
+  var out = {};
+  for (var i = 0; i < UNITS.length; i++){
+    out[UNITS[i].id] = formatSig(fromBase(1, UNITS[i].id), digits);
+  }
+  return out;
+}
+
+// ===== TESTS =====
+var F = function(x, d){ return formatSig(x, d || 6); };
+var P = function(s){ var r = parseNumber(s); return r.ok ? r.value : 'ERROR: ' + r.error; };
+var PE = function(s){ var r = parseNumber(s); return r.ok ? 'NO ERROR' : r.error; };
+
+var TESTS = [
+  { name: '1 N·m → lbf·in',        fn: function(){ return convertTorque(1, 'Nm', 'lbfin'); }, want: 8.850745791327185, tol: 1e-12 },
+  { name: '1 lbf·in → N·m',        fn: function(){ return convertTorque(1, 'lbfin', 'Nm'); }, want: 0.11298482902761668, tol: 1e-15 },
+  { name: '1 lbf·ft → N·m',        fn: function(){ return convertTorque(1, 'lbfft', 'Nm'); }, want: 1.3558179483314003, tol: 1e-12 },
+  { name: '1 ozf·in → N·m',        fn: function(){ return convertTorque(1, 'ozfin', 'Nm'); }, want: 0.007061551814226043, tol: 1e-15 },
+  { name: '1 kgf·cm → N·m',        fn: function(){ return convertTorque(1, 'kgfcm', 'Nm'); }, want: 0.0980665, tol: 1e-15 },
+  { name: '1 kgf·m → N·m',         fn: function(){ return convertTorque(1, 'kgfm', 'Nm'); }, want: 9.80665, tol: 1e-12 },
+  { name: '1 gf·cm → N·m',         fn: function(){ return convertTorque(1, 'gfcm', 'Nm'); }, want: 9.80665e-5, tol: 1e-18 },
+  { name: '1 N·m → mN·m',          fn: function(){ return convertTorque(1, 'Nm', 'mNm'); }, want: 1000, tol: 1e-9 },
+  { name: '1 N·m → cN·m',          fn: function(){ return convertTorque(1, 'Nm', 'cNm'); }, want: 100, tol: 1e-9 },
+  { name: '1 N·m → kgf·cm',        fn: function(){ return convertTorque(1, 'Nm', 'kgfcm'); }, want: 10.197162129779283, tol: 1e-12 },
+  { name: '1 lbf·in = 16 ozf·in',  fn: function(){ return convertTorque(1, 'lbfin', 'ozfin'); }, want: 16, tol: 1e-12 },
+  { name: '1 lbf·ft = 12 lbf·in',  fn: function(){ return convertTorque(1, 'lbfft', 'lbfin'); }, want: 12, tol: 1e-12 },
+  { name: '1 kgf·m = 100 kgf·cm',  fn: function(){ return convertTorque(1, 'kgfm', 'kgfcm'); }, want: 100, tol: 1e-12 },
+  { name: '來回換算不失真',          fn: function(){ return convertTorque(convertTorque(8.5, 'lbfin', 'Nm'), 'Nm', 'lbfin'); }, want: 8.5, tol: 1e-12 },
+  { name: '負值照算（鬆脫方向）',     fn: function(){ return convertTorque(-1, 'Nm', 'lbfin'); }, want: -8.850745791327185, tol: 1e-12 },
+  { name: '0 換算為 0',             fn: function(){ return convertTorque(0, 'lbfin', 'Nm'); }, want: 0, tol: 0 },
+  { name: '格式：6 位有效數字',       fn: function(){ return F(convertTorque(1, 'Nm', 'lbfin'), 6); }, want: '8.85075' },
+  { name: '格式：4 位有效數字',       fn: function(){ return F(convertTorque(1, 'Nm', 'lbfin'), 4); }, want: '8.851' },
+  { name: '格式：3 位有效數字',       fn: function(){ return F(convertTorque(1, 'Nm', 'lbfin'), 3); }, want: '8.85' },
+  { name: '格式：去尾零',            fn: function(){ return F(20, 6); }, want: '20' },
+  { name: '格式：無浮點雜訊',         fn: function(){ return F(0.1 + 0.2, 6); }, want: '0.3' },
+  { name: '格式：0',                fn: function(){ return F(0, 6); }, want: '0' },
+  { name: '格式：極小值',            fn: function(){ return F(convertTorque(1, 'gfcm', 'lbfft'), 6); }, want: '0.0000723301' },
+  { name: '格式：大值',              fn: function(){ return F(convertTorque(1, 'Nm', 'gfcm'), 6); }, want: '10197.2' },
+  { name: '解析：千分位逗號',         fn: function(){ return P('1,234.5'); }, want: 1234.5 },
+  { name: '解析：前後空白',           fn: function(){ return P('  8.5  '); }, want: 8.5 },
+  { name: '解析：科學記號',           fn: function(){ return P('1e-3'); }, want: 0.001 },
+  { name: '解析：空字串不報錯',       fn: function(){ return String(P('')); }, want: 'null' },
+  { name: '解析：非數字報錯',         fn: function(){ return PE('8.5a'); }, want: "含非數字字元 'a'，只能輸入數字、小數點與正負號" },
+  { name: '解析：殘缺數字報錯',       fn: function(){ return PE('8.5.1'); }, want: '不是完整的數字，例如 8.5 或 0.96' },
+  { name: '九欄一次算齊',            fn: function(){ return convertAll(1, 'Nm', 6).lbfin; }, want: '8.85075' },
+  { name: '九欄空值全空',            fn: function(){ return convertAll(null, 'Nm', 6).lbfin; }, want: '' },
+  { name: '參考列 1 N·m',           fn: function(){ return referenceRow(6).kgfcm; }, want: '10.1972' }
+];
+
+function runTests(){
+  return TESTS.map(function(t){
+    var got, pass;
+    try { got = t.fn(); } catch (e){ got = 'THREW: ' + e.message; }
+    if (typeof t.want === 'number' && typeof got === 'number' && t.tol != null)
+      pass = Math.abs(got - t.want) <= t.tol;
+    else pass = String(got) === String(t.want);
+    return { name: t.name, want: String(t.want), got: String(got), pass: pass };
+  });
+}
+
+// ===== END CORE =====
+
+// ===== DOM =====
+var VERSION = '2.0.0';
+var DIGITS = 6;   // 固定 6 位有效數字，不提供切換
+
+var state = {
+  source: null,   // 當前輸入端的單位 id（data-source）
+  raw: ''         // 輸入端的原始文字，重算時不覆寫
+};
+
+var PFX = 'tq-';
+var $ = function(id){ return document.getElementById(PFX + id); };
+
+function escapeHtml(s){
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function buildGroups(){
+  $('groups').innerHTML = GROUPS.map(function(g){
+    var rows = UNITS.filter(function(u){ return u.group === g.id; }).map(function(u){
+      return '<div class="row" id="' + PFX + 'row-' + u.id + '">' +
+        '<label for="' + PFX + 'f-' + u.id + '">' + u.label + '</label>' +
+        '<input id="' + PFX + 'f-' + u.id + '" type="text" inputmode="decimal" autocomplete="off"' +
+        ' spellcheck="false" oninput="TQ.onInput(\'' + u.id + '\')"' +
+        ' aria-label="' + u.label + '">' +
+        '<button type="button" class="cp" onclick="TQ.onCopy(\'' + u.id + '\', this)">複製</button>' +
+      '</div>';
+    }).join('');
+    return '<div class="group"><h3>' + escapeHtml(g.title) + '</h3>' + rows + '</div>';
+  }).join('');
+}
+
+function renderPlaceholders(){
+  var ref = referenceRow(DIGITS);
+  UNITS.forEach(function(u){ $('f-' + u.id).placeholder = ref[u.id]; });
+}
+
+function renderValues(){
+  var groups = $('groups');
+  UNITS.forEach(function(u){
+    $('row-' + u.id).classList.toggle('src', state.source === u.id);
+  });
+
+  if (state.source === null || state.raw.trim() === ''){
+    groups.classList.add('idle');
+    UNITS.forEach(function(u){ if (u.id !== state.source) $('f-' + u.id).value = ''; });
+    $('msg').className = 'msg';
+    $('msg').textContent = '';
+    return;
+  }
+
+  groups.classList.remove('idle');
+  var p = parseNumber(state.raw);
+
+  if (!p.ok){
+    UNITS.forEach(function(u){ if (u.id !== state.source) $('f-' + u.id).value = ''; });
+    $('msg').className = 'msg err';
+    $('msg').innerHTML = '<span class="tag">錯誤</span> ' + escapeHtml(p.error);
+    return;
+  }
+
+  var all = convertAll(p.value, state.source, DIGITS);
+  UNITS.forEach(function(u){ if (u.id !== state.source) $('f-' + u.id).value = all[u.id]; });
+
+  var src = unitOf(state.source);
+  $('msg').className = 'msg';
+  $('msg').textContent = formatSig(p.value, DIGITS) + ' ' + src.label +
+    ' 為輸入端，其餘八欄為換算結果';
+}
+
+function renderAll(){
+  $('verTag').textContent = 'v' + VERSION;
+  renderPlaceholders();
+  renderValues();
+}
+
+function onInput(unitId){
+  state.source = unitId;
+  state.raw = $('f-' + unitId).value;
+  renderValues();
+}
+
+// ---- 供外殼的「最近五筆」使用 ----
+function snapshot(){ return { source: state.source, raw: state.raw }; }
+
+function restore(o){
+  if (!o || !o.source || !unitOf(o.source)) return;
+  state.source = o.source;
+  state.raw = typeof o.raw === 'string' ? o.raw : '';
+  UNITS.forEach(function(u){
+    $('f-' + u.id).value = u.id === state.source ? state.raw : '';
+  });
+  renderValues();
+}
+
+function summary(){
+  if (!state.source || String(state.raw).trim() === '') return '';
+  var p = parseNumber(state.raw);
+  if (!p.ok || p.value === null) return '';
+  return String(state.raw).trim() + ' ' + unitOf(state.source).label;
+}
+
+function onClear(){
+  state.source = null;
+  state.raw = '';
+  UNITS.forEach(function(u){ $('f-' + u.id).value = ''; });
+  renderValues();
+  $('f-Nm').focus();
+}
+
+function onCopy(unitId, btn){
+  var text = $('f-' + unitId).value || $('f-' + unitId).placeholder;
+  var done = function(){
+    var old = btn.textContent;
+    btn.textContent = '已複製';
+    setTimeout(function(){ btn.textContent = old; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done, function(){ legacyCopy(text, done); });
+  } else legacyCopy(text, done);
+}
+
+function legacyCopy(text, done){
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    done();
+  } catch (e){ /* 複製失敗時不干擾換算結果 */ }
+}
+
+// 自我檢查在載入時靜默執行：全過就完全不顯示，有錯才跳出警示列。
+function checkSelfTest(){
+  var rows = runTests();
+  var failed = rows.filter(function(r){ return !r.pass; });
+  var box = $('testFail');
+  if (failed.length === 0){ box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<b>換算自我檢查失敗：' + failed.length + '/' + rows.length +
+    ' 項不符預期，結果可能不可信。</b><ul>' +
+    failed.map(function(r){
+      return '<li>' + escapeHtml(r.name) + ' — want ' + escapeHtml(r.want) +
+             ', got ' + escapeHtml(r.got) + '</li>';
+    }).join('') + '</ul>';
+}
+
+buildGroups();
+renderAll();
+
+return { onClear: onClear, onInput: onInput, onCopy: onCopy, snapshot: snapshot, restore: restore, summary: summary, runTests: runTests, TESTS: TESTS };
+})();
+
+var NOP = (function(){
+
+// ===== CORE =====
+// 純函式區塊，不碰 DOM。全部可由 self-test 直接呼叫。
+// 回傳慣例：可能失敗的函式回傳 { ok:true, ... } 或 { ok:false, error:'...' }，不 throw。
+// 所有時間以裝置本地時間計算，日期一律用 new Date(y, m, d, h, min) 明確建構，不 parse 字串。
+
+var HOUR_MS = 3600000;
+var MIN_MS  = 60000;
+var DAY_MS  = 86400000;
+
+var WEEKDAY_ZH = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+
+function ok(o){ o.ok = true; return o; }
+function err(m){ return { ok: false, error: m }; }
+
+// ---- 日期工具 ----
+function pad2(n){ return String(n).padStart(2, '0'); }
+
+function ymdKey(d){
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
+function addMs(d, ms){ return new Date(d.getTime() + ms); }
+
+// 同一天的指定時刻
+function atTime(d, h, min){
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, min, 0, 0);
+}
+
+function startOfDay(d){ return atTime(d, 0, 0); }
+
+function nextDay(d){
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, d.getHours(), d.getMinutes(), 0, 0);
+}
+
+function isWeekend(d){ var w = d.getDay(); return w === 0 || w === 6; }
+
+function isWorkday(d, excluded){
+  if (isWeekend(d)) return false;
+  return !(excluded && excluded[ymdKey(d)]);
+}
+
+// 手動拆字串，不用 new Date(字串)
+function parseDateTimeLocal(str){
+  var s = String(str).trim();
+  var m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(s);
+  if (!m) return err('請選擇完整的日期與時間');
+  var y = +m[1], mo = +m[2], da = +m[3], h = +m[4], mi = +m[5];
+  if (mo < 1 || mo > 12) return err('月份超出範圍：' + m[2]);
+  if (da < 1 || da > 31) return err('日期超出範圍：' + m[3]);
+  var d = new Date(y, mo - 1, da, h, mi, 0, 0);
+  if (d.getMonth() !== mo - 1 || d.getDate() !== da)
+    return err(m[1] + '-' + m[2] + '-' + m[3] + ' 不是實際存在的日期');
+  return ok({ date: d });
+}
+
+function parseClock(str){
+  var m = /^(\d{1,2}):(\d{2})$/.exec(String(str).trim());
+  if (!m) return err('時間格式為 HH:MM，例如 08:00');
+  var h = +m[1], mi = +m[2];
+  if (h > 23) return err('小時超出範圍：' + m[1]);
+  if (mi > 59) return err('分鐘超出範圍：' + m[2]);
+  return ok({ h: h, min: mi });
+}
+
+// 排除日期：YYYY-MM-DD 或 YYYY/MM/DD，可用逗號、空白、換行、分號分隔
+function parseExcludedDates(str){
+  var s = String(str || '').replace(/[,;]/g, ' ').replace(/[\r\n\t]/g, ' ').trim();
+  if (s === '') return ok({ set: {}, list: [] });
+  var toks = s.split(/\s+/), set = {}, list = [];
+  for (var i = 0; i < toks.length; i++){
+    var t = toks[i].replace(/\//g, '-');
+    var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+    if (!m) return err("排除日期「" + toks[i] + "」格式不符，需為 YYYY-MM-DD");
+    var d = new Date(+m[1], +m[2] - 1, +m[3], 0, 0, 0, 0);
+    if (d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3])
+      return err('排除日期「' + toks[i] + '」不是實際存在的日期');
+    var k = ymdKey(d);
+    if (!set[k]){ set[k] = true; list.push(k); }
+  }
+  list.sort();
+  return ok({ set: set, list: list });
+}
+
+// 開箱點清單：正數，可用逗號、空白、換行分隔
+function parseMarks(str, total, unitName){
+  var s = String(str || '').replace(/[,;]/g, ' ').replace(/[\r\n\t]/g, ' ').trim();
+  if (s === '') return ok({ marks: [] });
+  var toks = s.split(/\s+/), seen = {}, marks = [];
+  for (var i = 0; i < toks.length; i++){
+    if (!/^\d+(\.\d+)?$/.test(toks[i]))
+      return err("開箱點「" + toks[i] + "」不是數字");
+    var v = Number(toks[i]);
+    if (v <= 0) return err('開箱點必須大於 0，目前有 ' + toks[i]);
+    if (v > total)
+      return err('開箱點 ' + toks[i] + ' 超過總' + unitName + ' ' + total);
+    if (!seen[v]){ seen[v] = true; marks.push(v); }
+  }
+  marks.sort(function(a, b){ return a - b; });
+  return ok({ marks: marks });
+}
+
+function parsePositive(str, label, allowZero){
+  var s = String(str || '').replace(/[\s　,]/g, '');
+  if (s === '') return err(label + '尚未填入');
+  if (!/^\d+(\.\d+)?$/.test(s)) return err(label + '需為正數，目前是「' + str + '」');
+  var v = Number(s);
+  if (!allowZero && v <= 0) return err(label + '必須大於 0');
+  if (!isFinite(v)) return err(label + '數值過大');
+  return ok({ value: v });
+}
+
+function parseSigned(str, label){
+  var s = String(str || '').replace(/[\s　,]/g, '');
+  if (s === '') return ok({ value: null });
+  if (!/^[+-]?\d+(\.\d+)?$/.test(s)) return err(label + '需為數字，目前是「' + str + '」');
+  return ok({ value: Number(s) });
+}
+
+// ---- 開箱落點規則 ----
+// 1. 段落結束在分界時刻（預設中午 12:00）之前 -> 候選日為當天；之後 -> 候選日為隔天
+// 2. 候選日若為週六、週日或排除日 -> 往後推到下一個工作日
+// 3. 開箱起始 = 該日的 max(段落結束時間, 上班時間)
+function scheduleCheckpoint(endDate, opt){
+  var shiftH = opt.shiftH, shiftMin = opt.shiftMin;
+  var cutoffH = opt.cutoffH == null ? 12 : opt.cutoffH;
+  var durMs = opt.durationH * HOUR_MS;
+  var excluded = opt.excluded || {};
+
+  // 恰好 12:00 不算「超過中午」，仍排當天
+  var endMinOfDay = endDate.getHours() * 60 + endDate.getMinutes();
+  var sameDay = endMinOfDay <= cutoffH * 60;
+  var cand = startOfDay(endDate);
+  if (!sameDay) cand = nextDay(cand);
+
+  var guard = 0;
+  while (!isWorkday(cand, excluded)){
+    cand = nextDay(cand);
+    if (++guard > 400) break;
+  }
+
+  var shift = atTime(cand, shiftH, shiftMin);
+  var start = (ymdKey(cand) === ymdKey(endDate) && endDate.getTime() > shift.getTime())
+    ? new Date(endDate.getTime())
+    : shift;
+
+  return {
+    start: start,
+    end: addMs(start, durMs),
+    waitMs: start.getTime() - endDate.getTime()
+  };
+}
+
+// 測試結束後一定要開箱的測試類型，用這個把總量補進開箱點
+function withFinalMark(marks, total){
+  var out = marks.slice();
+  if (out.indexOf(total) === -1) out.push(total);
+  out.sort(function(a, b){ return a - b; });
+  return out;
+}
+
+// ---- 段落切分 ----
+// marks 為累計進度（小時或圈數）。每個 mark 後面接一次開箱。
+function segmentsFromMarks(total, marks){
+  var segs = [], prev = 0;
+  for (var i = 0; i < marks.length; i++){
+    if (marks[i] <= prev) continue;
+    segs.push({ from: prev, to: marks[i], cpAfter: true });
+    prev = marks[i];
+  }
+  if (prev < total) segs.push({ from: prev, to: total, cpAfter: false });
+  return segs;
+}
+
+// ---- 時間軸建構 ----
+// cfg: { start:Date, unitMs, unitName, segments:[{from,to,cpAfter,label?}], cp:{shiftH,shiftMin,durationH,cutoffH,excluded} }
+function buildTimeline(cfg){
+  var items = [], t = new Date(cfg.start.getTime());
+  var runMs = 0, cpMs = 0, waitMs = 0, cpCount = 0;
+
+  for (var i = 0; i < cfg.segments.length; i++){
+    var s = cfg.segments[i];
+    var span = (s.to - s.from) * cfg.unitMs;
+    var segStart = new Date(t.getTime());
+    var segEnd = addMs(segStart, span);
+    items.push({
+      type: 'run',
+      label: s.label || ('第 ' + fmtNum(s.from) + ' 到 ' + fmtNum(s.to) + ' ' + cfg.unitName),
+      start: segStart, end: segEnd, ms: span,
+      unitsFrom: s.from, unitsTo: s.to
+    });
+    runMs += span;
+    t = segEnd;
+
+    if (s.cpAfter){
+      var cp = scheduleCheckpoint(segEnd, cfg.cp);
+      if (cp.waitMs > 0){
+        items.push({ type: 'wait', label: '等待工作日', start: segEnd, end: cp.start, ms: cp.waitMs });
+        waitMs += cp.waitMs;
+      }
+      cpCount++;
+      items.push({
+        type: 'checkpoint',
+        label: '第 ' + cpCount + ' 次開箱檢測（' + fmtNum(s.to) + ' ' + cfg.unitName + '）',
+        start: cp.start, end: cp.end, ms: cp.end - cp.start,
+        atUnits: s.to, index: cpCount
+      });
+      cpMs += cp.end - cp.start;
+      t = cp.end;
+    }
+  }
+
+  return ok({
+    items: items,
+    start: new Date(cfg.start.getTime()),
+    finish: t,
+    totalMs: t.getTime() - cfg.start.getTime(),
+    runMs: runMs, cpMs: cpMs, waitMs: waitMs, cpCount: cpCount,
+    unitMs: cfg.unitMs, unitName: cfg.unitName
+  });
+}
+
+// ---- 查詢：第 n 個單位（圈 / 小時）何時完成 ----
+function unitToDate(tl, n){
+  if (!(n > 0)) return err('查詢的' + tl.unitName + '數必須大於 0');
+  var runs = tl.items.filter(function(x){ return x.type === 'run'; });
+  var last = runs[runs.length - 1];
+  if (n > last.unitsTo)
+    return err('超過總' + tl.unitName + ' ' + fmtNum(last.unitsTo) + '，無法查詢');
+  for (var i = 0; i < runs.length; i++){
+    var r = runs[i];
+    if (n <= r.unitsTo){
+      var d = addMs(r.start, (n - r.unitsFrom) * tl.unitMs);
+      return ok({ date: d, segment: i });
+    }
+  }
+  return err('查不到對應的段落');
+}
+
+// ---- 查詢：某個時刻已完成幾個單位 ----
+function dateToUnits(tl, d){
+  var ts = d.getTime();
+  if (ts < tl.start.getTime())
+    return ok({ units: 0, state: 'before', note: '早於測試起始時間' });
+  if (ts >= tl.finish.getTime())
+    return ok({ units: lastUnits(tl), state: 'after', note: '測試已全部完成' });
+
+  for (var i = 0; i < tl.items.length; i++){
+    var it = tl.items[i];
+    if (ts >= it.start.getTime() && ts < it.end.getTime()){
+      if (it.type === 'run'){
+        var done = it.unitsFrom + Math.floor((ts - it.start.getTime()) / tl.unitMs);
+        return ok({ units: done, state: 'run', item: it });
+      }
+      return ok({
+        units: it.type === 'checkpoint' ? it.atUnits : prevUnits(tl, i),
+        state: it.type,
+        item: it,
+        resumeAt: new Date(it.end.getTime())
+      });
+    }
+  }
+  return ok({ units: lastUnits(tl), state: 'after', note: '測試已全部完成' });
+}
+
+function lastUnits(tl){
+  var runs = tl.items.filter(function(x){ return x.type === 'run'; });
+  return runs.length ? runs[runs.length - 1].unitsTo : 0;
+}
+
+function prevUnits(tl, idx){
+  for (var i = idx - 1; i >= 0; i--) if (tl.items[i].type === 'run') return tl.items[i].unitsTo;
+  return 0;
+}
+
+// ---- TCT 一圈時間 ----
+function cycleMinutesFromRates(p){
+  var dT = p.hiTemp - p.loTemp;
+  if (!(dT > 0)) return err('高溫必須大於低溫，目前是 ' + p.hiTemp + ' 與 ' + p.loTemp);
+  if (!(p.upRate > 0)) return err('升溫速率必須大於 0');
+  if (!(p.downRate > 0)) return err('降溫速率必須大於 0');
+  var min = dT / p.upRate + p.hiDwell + dT / p.downRate + p.loDwell;
+  return ok({
+    minutes: min,
+    upMin: dT / p.upRate,
+    downMin: dT / p.downRate,
+    deltaT: dT
+  });
+}
+
+// ---- 顯示格式 ----
+function fmtNum(x){
+  if (x === null || x === undefined || !isFinite(x)) return '';
+  var s = Number(x).toPrecision(12);
+  if (s.indexOf('e') !== -1) s = String(Number(x));
+  if (s.indexOf('.') !== -1) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return s;
+}
+
+function weekdayZh(d){ return WEEKDAY_ZH[d.getDay()]; }
+
+function fmtDateTime(d){
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+         '（' + weekdayZh(d) + '）' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
+function fmtDateTimeAscii(d){
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+         ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
+// 時間長度：以天與小時表示，未滿一天只給小時與分
+function fmtDuration(ms){
+  if (ms < 0) ms = 0;
+  var totalMin = Math.round(ms / MIN_MS);
+  var d = Math.floor(totalMin / 1440);
+  var h = Math.floor((totalMin - d * 1440) / 60);
+  var m = totalMin - d * 1440 - h * 60;
+  var parts = [];
+  if (d) parts.push(d + ' 天');
+  if (h) parts.push(h + ' 小時');
+  if (m) parts.push(m + ' 分');
+  if (!parts.length) parts.push('0 分');
+  return parts.join(' ');
+}
+
+function fmtHours(ms){ return fmtNum(Math.round(ms / MIN_MS) / 60) + ' 小時'; }
+
+// ===== TESTS =====
+// 基準日：2026-09-11 為週五。09-12 六、09-13 日、09-14 一、09-16 三、09-17 四。
+var D = function(y, mo, d, h, mi){ return new Date(y, mo - 1, d, h || 0, mi || 0, 0, 0); };
+var CP = function(over){
+  var o = { shiftH: 8, shiftMin: 0, durationH: 8, cutoffH: 12, excluded: {} };
+  for (var k in (over || {})) o[k] = over[k];
+  return o;
+};
+var SC = function(d, over){ return fmtDateTime(scheduleCheckpoint(d, CP(over)).start); };
+
+// 共用：冷熱儲存時間軸（低溫 128hr + 開箱、高溫 128hr + 開箱），2026-09-11 08:00 起
+var TL_STORAGE = function(){
+  return buildTimeline({
+    start: D(2026, 9, 11, 8, 0),
+    unitMs: HOUR_MS, unitName: '小時',
+    segments: [
+      { from: 0,   to: 128, cpAfter: true, label: '低溫 128 hr' },
+      { from: 128, to: 256, cpAfter: true, label: '高溫 128 hr' }
+    ],
+    cp: CP()
+  });
+};
+
+// 共用：TCT 500 圈、一圈 90 分、開箱在 160 / 300 / 400 / 500 圈
+var TL_TCT = function(){
+  var marks = [160, 300, 400, 500];
+  return buildTimeline({
+    start: D(2026, 9, 11, 8, 0),
+    unitMs: 90 * MIN_MS, unitName: '圈',
+    segments: segmentsFromMarks(500, marks),
+    cp: CP()
+  });
+};
+
+var TESTS = [
+  // ---- 開箱落點規則 ----
+  { name: '落點：週一 09:00 結束 → 當天',        fn: function(){ return SC(D(2026, 9, 14, 9, 0)); },  want: '2026-09-14（週一）09:00' },
+  { name: '落點：週一 13:00 結束 → 隔天上班',    fn: function(){ return SC(D(2026, 9, 14, 13, 0)); }, want: '2026-09-15（週二）08:00' },
+  { name: '落點：週五 13:00 結束 → 下週一',      fn: function(){ return SC(D(2026, 9, 11, 13, 0)); }, want: '2026-09-14（週一）08:00' },
+  { name: '落點：週六 10:00 結束 → 下週一',      fn: function(){ return SC(D(2026, 9, 12, 10, 0)); }, want: '2026-09-14（週一）08:00' },
+  { name: '落點：週日 13:00 結束 → 下週一',      fn: function(){ return SC(D(2026, 9, 13, 13, 0)); }, want: '2026-09-14（週一）08:00' },
+  { name: '落點：週一 06:00 結束 → 等到上班',    fn: function(){ return SC(D(2026, 9, 14, 6, 0)); },  want: '2026-09-14（週一）08:00' },
+  { name: '落點：恰好 12:00 仍算當天',           fn: function(){ return SC(D(2026, 9, 14, 12, 0)); }, want: '2026-09-14（週一）12:00' },
+  { name: '落點：12:01 算超過中午',             fn: function(){ return SC(D(2026, 9, 14, 12, 1)); }, want: '2026-09-15（週二）08:00' },
+  { name: '落點：排除日往後跳',                 fn: function(){ return SC(D(2026, 9, 14, 13, 0), { excluded: { '2026-09-15': true, '2026-09-16': true } }); }, want: '2026-09-17（週四）08:00' },
+  { name: '落點：上班時間可改 09:30',           fn: function(){ return SC(D(2026, 9, 14, 13, 0), { shiftH: 9, shiftMin: 30 }); }, want: '2026-09-15（週二）09:30' },
+  { name: '落點：開箱 8hr 可跨下班',            fn: function(){ return fmtDateTime(scheduleCheckpoint(D(2026, 9, 14, 11, 0), CP()).end); }, want: '2026-09-14（週一）19:00' },
+  { name: '落點：週五 13:00 空等時數',          fn: function(){ return fmtDuration(scheduleCheckpoint(D(2026, 9, 11, 13, 0), CP()).waitMs); }, want: '2 天 19 小時' },
+
+  // ---- 段落切分 ----
+  { name: '切分：mark 含總量',                  fn: function(){ return JSON.stringify(segmentsFromMarks(500, [160, 500])); }, want: '[{"from":0,"to":160,"cpAfter":true},{"from":160,"to":500,"cpAfter":true}]' },
+  { name: '切分：mark 不含總量留尾段',           fn: function(){ return JSON.stringify(segmentsFromMarks(500, [250])); }, want: '[{"from":0,"to":250,"cpAfter":true},{"from":250,"to":500,"cpAfter":false}]' },
+  { name: '切分：無 mark 單一段落',              fn: function(){ return JSON.stringify(segmentsFromMarks(500, [])); }, want: '[{"from":0,"to":500,"cpAfter":false}]' },
+  { name: '補尾：空清單補上總量',                fn: function(){ return withFinalMark([], 500).join(','); }, want: '500' },
+  { name: '補尾：已含總量不重複',                fn: function(){ return withFinalMark([250, 500], 500).join(','); }, want: '250,500' },
+  { name: '補尾：排序後補在最後',                fn: function(){ return withFinalMark([250], 500).join(','); }, want: '250,500' },
+  { name: '補尾：結束必開箱的段落',              fn: function(){ return JSON.stringify(segmentsFromMarks(500, withFinalMark([], 500))); }, want: '[{"from":0,"to":500,"cpAfter":true}]' },
+
+  // ---- 冷熱儲存時間軸 ----
+  { name: '儲存：低溫段結束',                   fn: function(){ return fmtDateTime(TL_STORAGE().items[0].end); }, want: '2026-09-16（週三）16:00' },
+  { name: '儲存：第 1 次開箱起始',               fn: function(){ return fmtDateTime(TL_STORAGE().items.filter(function(x){ return x.type === 'checkpoint'; })[0].start); }, want: '2026-09-17（週四）08:00' },
+  { name: '儲存：完成時間',                     fn: function(){ return fmtDateTime(TL_STORAGE().finish); }, want: '2026-09-23（週三）16:00' },
+  { name: '儲存：開箱次數',                     fn: function(){ return TL_STORAGE().cpCount; }, want: 2 },
+  { name: '儲存：純測試時數',                   fn: function(){ return fmtHours(TL_STORAGE().runMs); }, want: '256 小時' },
+  { name: '儲存：開箱時數',                     fn: function(){ return fmtHours(TL_STORAGE().cpMs); }, want: '16 小時' },
+
+  // ---- TCT 一圈時間 ----
+  { name: 'TCT：一圈時間（5/3 °C/min）',        fn: function(){ return fmtNum(cycleMinutesFromRates({ loTemp: -40, hiTemp: 100, upRate: 5, downRate: 3, hiDwell: 15, loDwell: 20 }).minutes); }, want: '109.666666667' },
+  { name: 'TCT：ΔT 140',                       fn: function(){ return cycleMinutesFromRates({ loTemp: -40, hiTemp: 100, upRate: 5, downRate: 5, hiDwell: 0, loDwell: 0 }).deltaT; }, want: 140 },
+  { name: 'TCT：對稱速率一圈 56 分',             fn: function(){ return cycleMinutesFromRates({ loTemp: -40, hiTemp: 100, upRate: 5, downRate: 5, hiDwell: 0, loDwell: 0 }).minutes; }, want: 56, tol: 1e-9 },
+  { name: 'TCT：高溫不大於低溫報錯',             fn: function(){ var r = cycleMinutesFromRates({ loTemp: 100, hiTemp: -40, upRate: 5, downRate: 5, hiDwell: 0, loDwell: 0 }); return r.ok ? 'NO ERROR' : r.error; }, want: '高溫必須大於低溫，目前是 -40 與 100' },
+
+  // ---- TCT 時間軸與雙向查詢 ----
+  { name: 'TCT：第 160 圈完成時刻',              fn: function(){ return fmtDateTime(TL_TCT().items[0].end); }, want: '2026-09-21（週一）08:00' },
+  { name: 'TCT：完成時間',                      fn: function(){ return fmtDateTime(TL_TCT().finish); }, want: '2026-10-14（週三）16:00' },
+  { name: 'TCT：第 4 段結束 22:00 推隔天',       fn: function(){ var tl = TL_TCT(); var runs = tl.items.filter(function(x){ return x.type === 'run'; }); return fmtDateTime(runs[3].end); }, want: '2026-10-13（週二）22:00' },
+  { name: 'TCT：開箱次數 4',                    fn: function(){ return TL_TCT().cpCount; }, want: 4 },
+  { name: 'TCT：查第 272 圈',                   fn: function(){ var tl = TL_TCT(); return fmtDateTime(unitToDate(tl, 272).date); }, want: '2026-09-28（週一）16:00' },
+  { name: 'TCT：查第 1 圈',                     fn: function(){ var tl = TL_TCT(); return fmtDateTime(unitToDate(tl, 1).date); }, want: '2026-09-11（週五）09:30' },
+  { name: 'TCT：查超過總圈數報錯',               fn: function(){ var tl = TL_TCT(); var r = unitToDate(tl, 501); return r.ok ? 'NO ERROR' : r.error; }, want: '超過總圈 500，無法查詢' },
+  { name: 'TCT：反查 09-15 08:00 已完成圈數',    fn: function(){ var tl = TL_TCT(); return dateToUnits(tl, D(2026, 9, 15, 8, 0)).units; }, want: 64 },
+  { name: 'TCT：反查落在開箱期間',               fn: function(){ var tl = TL_TCT(); var r = dateToUnits(tl, D(2026, 9, 21, 10, 0)); return r.state + ' @ ' + r.units; }, want: 'checkpoint @ 160' },
+  { name: 'TCT：反查早於起始',                   fn: function(){ var tl = TL_TCT(); var r = dateToUnits(tl, D(2026, 9, 1, 8, 0)); return r.state + ' @ ' + r.units; }, want: 'before @ 0' },
+  { name: 'TCT：反查全部完成後',                 fn: function(){ var tl = TL_TCT(); var r = dateToUnits(tl, D(2026, 12, 1, 8, 0)); return r.state + ' @ ' + r.units; }, want: 'after @ 500' },
+  { name: 'TCT：查詢來回一致',                   fn: function(){ var tl = TL_TCT(); var d = unitToDate(tl, 272).date; return dateToUnits(tl, d).units; }, want: 272 },
+
+  // ---- 解析 ----
+  { name: '解析：日期時間',                     fn: function(){ return fmtDateTime(parseDateTimeLocal('2026-09-11T08:00').date); }, want: '2026-09-11（週五）08:00' },
+  { name: '解析：不存在的日期報錯',              fn: function(){ var r = parseDateTimeLocal('2026-02-30T08:00'); return r.ok ? 'NO ERROR' : r.error; }, want: '2026-02-30 不是實際存在的日期' },
+  { name: '解析：上班時間',                     fn: function(){ var r = parseClock('08:30'); return r.h + ':' + r.min; }, want: '8:30' },
+  { name: '解析：上班時間格式錯誤',              fn: function(){ var r = parseClock('8點'); return r.ok ? 'NO ERROR' : r.error; }, want: '時間格式為 HH:MM，例如 08:00' },
+  { name: '解析：排除日期多種分隔',              fn: function(){ return parseExcludedDates('2027-02-06, 2027/2/7\n2027-02-08').list.join('|'); }, want: '2027-02-06|2027-02-07|2027-02-08' },
+  { name: '解析：排除日期格式錯誤',              fn: function(){ var r = parseExcludedDates('2/6'); return r.ok ? 'NO ERROR' : r.error; }, want: '排除日期「2/6」格式不符，需為 YYYY-MM-DD' },
+  { name: '解析：開箱點排序去重',                fn: function(){ return parseMarks('500, 160 300,160', 500, '圈').marks.join(','); }, want: '160,300,500' },
+  { name: '解析：開箱點超過總量報錯',            fn: function(){ var r = parseMarks('600', 500, '圈'); return r.ok ? 'NO ERROR' : r.error; }, want: '開箱點 600 超過總圈 500' },
+  { name: '解析：開箱點空字串為無',              fn: function(){ return parseMarks('  ', 500, '圈').marks.length; }, want: 0 },
+  { name: '解析：正數欄位未填',                  fn: function(){ var r = parsePositive('', '總時數'); return r.ok ? 'NO ERROR' : r.error; }, want: '總時數尚未填入' },
+  { name: '解析：正數欄位非數字',                fn: function(){ var r = parsePositive('12a', '總時數'); return r.ok ? 'NO ERROR' : r.error; }, want: '總時數需為正數，目前是「12a」' },
+  { name: '解析：溫度可為負',                    fn: function(){ return parseSigned('-40', '低溫').value; }, want: -40 },
+
+  // ---- 顯示格式 ----
+  { name: '格式：週幾',                         fn: function(){ return weekdayZh(D(2026, 9, 11)); }, want: '週五' },
+  { name: '格式：時間長度',                     fn: function(){ return fmtDuration(128 * HOUR_MS); }, want: '5 天 8 小時' },
+  { name: '格式：時間長度含分',                  fn: function(){ return fmtDuration(90 * MIN_MS); }, want: '1 小時 30 分' },
+  { name: '格式：時間長度零',                    fn: function(){ return fmtDuration(0); }, want: '0 分' },
+  { name: '格式：數字去尾零',                    fn: function(){ return fmtNum(128.0); }, want: '128' },
+  { name: '格式：ASCII 日期',                    fn: function(){ return fmtDateTimeAscii(D(2026, 9, 11, 8, 5)); }, want: '2026-09-11 08:05' }
+];
+
+function runTests(){
+  return TESTS.map(function(t){
+    var got, pass;
+    try { got = t.fn(); } catch (e){ got = 'THREW: ' + e.message; }
+    if (typeof t.want === 'number' && typeof got === 'number' && t.tol != null)
+      pass = Math.abs(got - t.want) <= t.tol;
+    else pass = String(got) === String(t.want);
+    return { name: t.name, want: String(t.want), got: String(got), pass: pass };
+  });
+}
+
+// ===== END CORE =====
+
+// ===== DOM =====
+var VERSION = '3.0.0';
+
+var store = {
+  get: function(k, fallback){
+    try { var v = localStorage.getItem(k); return v === null ? fallback : JSON.parse(v); }
+    catch (e){ return fallback; }
+  },
+  set: function(k, v){
+    try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e){ return false; }
+  }
+};
+
+var FIELD_IDS = [
+  'start',
+  'a_lotemp', 'a_lohours', 'a_hitemp', 'a_hihours',
+  'b_temp', 'b_rh', 'b_hours', 'b_marks',
+  'c_lotemp', 'c_hitemp', 'c_cycles', 'c_up', 'c_down', 'c_hidwell', 'c_lodwell', 'c_cycmin', 'c_marks',
+  'cp_hours', 'cp_shift', 'cp_excl',
+  'q_unit', 'q_time'
+];
+
+var DEFAULTS = { cp_hours: '8', cp_shift: '10:00' };
+
+var ui = { mode: 'storage', cycMode: 'rate' };
+var lastTimeline = null;
+
+var PFX = 'nop-';
+var $ = function(id){ return document.getElementById(PFX + id); };
+function val(id){ return $(id).value; }
+
+function escapeHtml(s){
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ---- 狀態存取 ----
+function saveState(){
+  var o = { mode: ui.mode, cycMode: ui.cycMode, f: {} };
+  FIELD_IDS.forEach(function(id){ o.f[id] = val(id); });
+  store.set('ttc.v1', o);
+}
+
+function loadState(){
+  var o = store.get('ttc.v1', null);
+  if (o && o.f){
+    FIELD_IDS.forEach(function(id){ if (typeof o.f[id] === 'string') $(id).value = o.f[id]; });
+    if (o.mode) ui.mode = o.mode;
+    if (o.cycMode) ui.cycMode = o.cycMode;
+  }
+  FIELD_IDS.forEach(function(id){
+    if (val(id) === '' && DEFAULTS[id] != null) $(id).value = DEFAULTS[id];
+  });
+  $('mode').value = ui.mode;
+}
+
+// ---- 模式切換 ----
+function renderMode(){
+  $('m-storage').hidden = ui.mode !== 'storage';
+  $('sec-q').hidden = ui.mode === 'storage';
+  $('m-hthh').hidden    = ui.mode !== 'hthh';
+  $('m-tct').hidden     = ui.mode !== 'tct';
+
+  var u = ui.mode === 'tct' ? '圈' : '小時';
+  $('q_unit_lbl').textContent = '第幾' + u + '完成於';
+  $('q1cap').textContent = '指定' + u + '數的完成時刻';
+  $('q2cap').textContent = '指定時刻已完成的' + u + '數';
+
+  ['rate', 'direct'].forEach(function(m){
+    $('cm_' + m).setAttribute('aria-pressed', ui.cycMode === m ? 'true' : 'false');
+  });
+  var nodes = document.querySelectorAll('[data-cyc]');
+  for (var i = 0; i < nodes.length; i++){
+    nodes[i].hidden = nodes[i].getAttribute('data-cyc') !== ui.cycMode;
+  }
+}
+
+// ---- 從畫面組出 cfg ----
+function readConfig(){
+  var s = parseDateTimeLocal(val('start'));
+  if (!s.ok) return err('裝爐時間：' + s.error);
+
+  var cpH = parsePositive(val('cp_hours'), '開箱時數');
+  if (!cpH.ok) return err(cpH.error);
+  var shift = parseClock(val('cp_shift'));
+  if (!shift.ok) return err('開箱時間：' + shift.error);
+  var excl = parseExcludedDates(val('cp_excl'));
+  if (!excl.ok) return err(excl.error);
+
+  var cp = {
+    shiftH: shift.h, shiftMin: shift.min,
+    durationH: cpH.value, cutoffH: 12, excluded: excl.set
+  };
+
+  if (ui.mode === 'storage'){
+    var lo = parsePositive(val('a_lohours'), '低溫時數');
+    if (!lo.ok) return err(lo.error);
+    var hi = parsePositive(val('a_hihours'), '高溫時數');
+    if (!hi.ok) return err(hi.error);
+    var loT = parseSigned(val('a_lotemp'), '低溫');
+    if (!loT.ok) return err(loT.error);
+    var hiT = parseSigned(val('a_hitemp'), '高溫');
+    if (!hiT.ok) return err(hiT.error);
+    return ok({
+      start: s.date, unitMs: HOUR_MS, unitName: '小時', cp: cp,
+      segments: [
+        { from: 0, to: lo.value, cpAfter: true,
+          label: '低溫儲存' + (loT.value === null ? '' : ' ' + fmtNum(loT.value) + ' °C') + '　' + fmtNum(lo.value) + ' hr' },
+        { from: lo.value, to: lo.value + hi.value, cpAfter: true,
+          label: '高溫儲存' + (hiT.value === null ? '' : ' ' + fmtNum(hiT.value) + ' °C') + '　' + fmtNum(hi.value) + ' hr' }
+      ],
+      cycleNote: ''
+    });
+  }
+
+  if (ui.mode === 'hthh'){
+    var th = parsePositive(val('b_hours'), '總時數');
+    if (!th.ok) return err(th.error);
+    var mk = parseMarks(val('b_marks'), th.value, '時數');
+    if (!mk.ok) return err(mk.error);
+    var t = parseSigned(val('b_temp'), '溫度');
+    if (!t.ok) return err(t.error);
+    var rh = parseSigned(val('b_rh'), '相對濕度');
+    if (!rh.ok) return err(rh.error);
+    var cond = [];
+    if (t.value !== null) cond.push(fmtNum(t.value) + ' °C');
+    if (rh.value !== null) cond.push(fmtNum(rh.value) + ' % RH');
+    var segs = segmentsFromMarks(th.value, withFinalMark(mk.marks, th.value));
+    segs.forEach(function(g){
+      g.label = (cond.length ? cond.join(' / ') + '　' : '') +
+                '第 ' + fmtNum(g.from) + ' 到 ' + fmtNum(g.to) + ' hr';
+    });
+    return ok({ start: s.date, unitMs: HOUR_MS, unitName: '小時', cp: cp, segments: segs, cycleNote: '' });
+  }
+
+  // TCT
+  var cyc = parsePositive(val('c_cycles'), '總圈數');
+  if (!cyc.ok) return err(cyc.error);
+  var loT2 = parseSigned(val('c_lotemp'), '低溫');
+  if (!loT2.ok) return err(loT2.error);
+  var hiT2 = parseSigned(val('c_hitemp'), '高溫');
+  if (!hiT2.ok) return err(hiT2.error);
+
+  var cycMin, note;
+  if (ui.cycMode === 'rate'){
+    if (loT2.value === null) return err('低溫尚未填入');
+    if (hiT2.value === null) return err('高溫尚未填入');
+    var up = parsePositive(val('c_up'), '升溫速率');
+    if (!up.ok) return err(up.error);
+    var dn = parsePositive(val('c_down'), '降溫速率');
+    if (!dn.ok) return err(dn.error);
+    var hd = parsePositive(val('c_hidwell'), '高溫停駐', true);
+    if (!hd.ok) return err(hd.error);
+    var ld = parsePositive(val('c_lodwell'), '低溫停駐', true);
+    if (!ld.ok) return err(ld.error);
+    var r = cycleMinutesFromRates({
+      loTemp: loT2.value, hiTemp: hiT2.value,
+      upRate: up.value, downRate: dn.value,
+      hiDwell: hd.value, loDwell: ld.value
+    });
+    if (!r.ok) return r;
+    cycMin = r.minutes;
+    note = '每圈 ' + fmtDuration(cycMin * MIN_MS) + '（ΔT ' + fmtNum(r.deltaT) +
+           ' °C：升溫 ' + fmtNum(Math.round(r.upMin * 10) / 10) + ' 分、高溫停駐 ' + fmtNum(hd.value) +
+           ' 分、降溫 ' + fmtNum(Math.round(r.downMin * 10) / 10) + ' 分、低溫停駐 ' + fmtNum(ld.value) + ' 分）';
+  } else {
+    var cm = parsePositive(val('c_cycmin'), '每圈時間');
+    if (!cm.ok) return err(cm.error);
+    cycMin = cm.value;
+    note = '每圈 ' + fmtDuration(cycMin * MIN_MS) + '（直接輸入）';
+  }
+
+  var mk2 = parseMarks(val('c_marks'), cyc.value, '圈數');
+  if (!mk2.ok) return err(mk2.error);
+  var range = (loT2.value === null || hiT2.value === null)
+    ? '' : fmtNum(loT2.value) + ' 到 ' + fmtNum(hiT2.value) + ' °C　';
+  var segs2 = segmentsFromMarks(cyc.value, withFinalMark(mk2.marks, cyc.value));
+  segs2.forEach(function(g){
+    g.label = range + '第 ' + fmtNum(g.from) + ' 到 ' + fmtNum(g.to) + ' 圈';
+  });
+  return ok({
+    start: s.date, unitMs: cycMin * MIN_MS, unitName: '圈',
+    cp: cp, segments: segs2, cycleNote: note
+  });
+}
+
+// ---- 渲染 ----
+var TYPE_ZH = { run: '測試', wait: '等待工作日', checkpoint: '開箱檢測' };
+
+function renderAll(){
+  $('verTag').textContent = 'v' + VERSION;
+  renderMode();
+
+  var cfg = readConfig();
+  var msg = $('msg'), cyc = $('cycmsg');
+
+  if (ui.mode === 'tct' && cfg.ok && cfg.cycleNote){
+    cyc.className = 'msg';
+    cyc.textContent = cfg.cycleNote;
+  } else {
+    cyc.className = 'msg';
+    cyc.textContent = '';
+  }
+
+  if (!cfg.ok){
+    lastTimeline = null;
+    $('finish').textContent = '填入裝爐時間與測試條件後，這裡會顯示預計完成時間';
+    $('finish').className = 'val empty';
+    $('copyFinish').disabled = true;
+    $('stats').hidden = true;
+    $('tlwrap').hidden = true;
+    msg.className = 'msg err';
+    msg.innerHTML = '<span class="tag">還缺</span> ' + escapeHtml(cfg.error);
+    renderQueries();
+    return;
+  }
+
+  var tl = buildTimeline(cfg);
+  lastTimeline = tl;
+
+  $('finish').textContent = fmtDateTime(tl.finish);
+  $('finish').className = 'val';
+  $('copyFinish').disabled = false;
+  msg.className = 'msg';
+  msg.textContent = '';
+
+  $('stats').hidden = false;
+  $('stats').innerHTML = [
+    ['純測試時間', fmtDuration(tl.runMs)],
+    ['開箱時間', fmtDuration(tl.cpMs) + '（' + tl.cpCount + ' 次）'],
+    ['等待工作日', fmtDuration(tl.waitMs)],
+    ['總歷時', fmtDuration(tl.totalMs)]
+  ].map(function(p){
+    return '<div><span class="k">' + escapeHtml(p[0]) + '</span><span class="v">' +
+           escapeHtml(p[1]) + '</span></div>';
+  }).join('');
+
+  $('tlwrap').hidden = false;
+  $('tlbody').innerHTML = tl.items.map(function(it){
+    return '<tr class="' + (it.type === 'checkpoint' ? 'cp' : it.type) + '">' +
+      '<td data-label="階段">' + TYPE_ZH[it.type] + '</td>' +
+      '<td class="t" data-label="開始">' + escapeHtml(fmtDateTime(it.start)) + '</td>' +
+      '<td class="t" data-label="結束">' + escapeHtml(fmtDateTime(it.end)) + '</td>' +
+      '<td class="t" data-label="長度">' + escapeHtml(fmtDuration(it.ms)) + '</td>' +
+      '<td class="note" data-label="說明">' + escapeHtml(it.label) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  renderQueries();
+}
+
+function renderQueries(){
+  var o1 = $('q1out'), o2 = $('q2out');
+  var tl = lastTimeline;
+  var u = ui.mode === 'tct' ? '圈' : '小時';
+
+  if (!tl){
+    o1.textContent = '時間軸算出來之後才能查詢';
+    o1.className = 'val sub empty';
+    o2.textContent = '—';
+    return;
+  }
+
+  var raw = val('q_unit').replace(/[\s,]/g, '');
+  if (raw === ''){
+    o1.textContent = '填入' + u + '數後顯示';
+    o1.className = 'val sub empty';
+  } else if (!/^\d+(\.\d+)?$/.test(raw)){
+    o1.textContent = u + '數需為正數';
+    o1.className = 'val sub empty';
+  } else {
+    var r = unitToDate(tl, Number(raw));
+    if (!r.ok){
+      o1.textContent = r.error;
+      o1.className = 'val sub empty';
+    } else {
+      o1.textContent = '第 ' + fmtNum(Number(raw)) + ' ' + u + '　' + fmtDateTime(r.date);
+      o1.className = 'val sub';
+    }
+  }
+
+  var qt = val('q_time');
+  if (String(qt).trim() === ''){ o2.textContent = '—'; return; }
+  var pd = parseDateTimeLocal(qt);
+  if (!pd.ok){ o2.textContent = pd.error; return; }
+  var q = dateToUnits(tl, pd.date);
+  var txt = '已完成 ' + fmtNum(q.units) + ' ' + u;
+  if (q.state === 'before') txt = '尚未開始（早於裝爐時間）';
+  else if (q.state === 'after') txt += '，測試已全部完成';
+  else if (q.state === 'checkpoint')
+    txt += '，正在第 ' + q.item.index + ' 次開箱，' + fmtDateTime(q.resumeAt) + ' 恢復';
+  else if (q.state === 'wait')
+    txt += '，等待開箱中，' + fmtDateTime(q.resumeAt) + ' 恢復';
+  o2.textContent = txt;
+}
+
+// ---- 事件 ----
+function onInput(){ saveState(); renderAll(); }
+
+// ---- 供外殼的「存檔」使用 ----
+function snapshot(){
+  var o = { mode: ui.mode, cycMode: ui.cycMode, f: {} };
+  FIELD_IDS.forEach(function(id){ o.f[id] = val(id); });
+  return o;
+}
+
+function restore(o){
+  if (!o || !o.f) return;
+  FIELD_IDS.forEach(function(id){ if (typeof o.f[id] === 'string') $(id).value = o.f[id]; });
+  if (o.mode) ui.mode = o.mode;
+  if (o.cycMode) ui.cycMode = o.cycMode;
+  $('mode').value = ui.mode;
+  saveState();
+  renderAll();
+}
+
+function summary(){
+  var cfg = readConfig();
+  if (!cfg.ok) return '';
+  var tl = buildTimeline(cfg);
+  var sel = $('mode');
+  return sel.options[sel.selectedIndex].textContent + '\u3000\u5b8c\u6210 ' + fmtDateTime(tl.finish);
+}
+
+function onMode(){
+  ui.mode = $('mode').value;
+  saveState();
+  renderAll();
+}
+
+function onCycleMode(m){
+  ui.cycMode = m;
+  saveState();
+  renderAll();
+}
+
+function onClear(){
+  FIELD_IDS.forEach(function(id){ $(id).value = DEFAULTS[id] != null ? DEFAULTS[id] : ''; });
+  saveState();
+  renderAll();
+  $('start').focus();
+}
+
+function onCopyFinish(btn){ onCopyText($('finish').textContent, btn); }
+
+function onCopyText(text, btn){
+  var done = function(){
+    var old = btn.textContent;
+    btn.textContent = '已複製';
+    setTimeout(function(){ btn.textContent = old; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done, function(){ legacyCopy(text, done); });
+  } else legacyCopy(text, done);
+}
+
+function legacyCopy(text, done){
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    done();
+  } catch (e){ /* 複製失敗時不干擾計算結果 */ }
+}
+
+// 自我檢查在載入時靜默執行：全過就完全不顯示，有錯才跳出警示列。
+function checkSelfTest(){
+  var rows = runTests();
+  var failed = rows.filter(function(r){ return !r.pass; });
+  var box = $('testFail');
+  if (failed.length === 0){ box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<b>排程自我檢查失敗：' + failed.length + '/' + rows.length +
+    ' 項不符預期，結果可能不可信。</b><ul>' +
+    failed.map(function(r){
+      return '<li>' + escapeHtml(r.name) + ' — want ' + escapeHtml(r.want) +
+             ', got ' + escapeHtml(r.got) + '</li>';
+    }).join('') + '</ul>';
+}
+
+loadState();
+renderAll();
+
+return { onMode: onMode, onInput: onInput, onCycleMode: onCycleMode, onClear: onClear, onCopyFinish: onCopyFinish, snapshot: snapshot, restore: restore, summary: summary, runTests: runTests, TESTS: TESTS };
+})();
+
+var MPC = (function(){
+
+// ===== CORE =====
+// 純函式區塊，不碰 DOM。全部可由 self-test 直接呼叫。
+// 回傳慣例：可能失敗的函式回傳 { ok:true, ... } 或 { ok:false, error:'...' }，不 throw。
+// 只處理「日」這個粒度，不處理時分。日期一律用 new Date(y, m, d) 明確建構，不 parse 字串。
+
+var DAY_MS = 86400000;
+var WEEKDAY_ZH = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+
+function ok(o){ o.ok = true; return o; }
+function err(m){ return { ok: false, error: m }; }
+
+function pad2(n){ return String(n).padStart(2, '0'); }
+
+// ---- 日期基本 ----
+// 用 UTC 日序號比較，避免夏令時間讓天數差多算或少算一天
+function dayNumber(d){
+  return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY_MS);
+}
+
+function dayDiff(a, b){ return dayNumber(b) - dayNumber(a); }
+
+function dateAddDays(d, n){
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+
+function ymdKey(d){
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
+function isWeekend(d){ var w = d.getDay(); return w === 0 || w === 6; }
+
+function isWorkday(d, excluded){
+  if (isWeekend(d)) return false;
+  return !(excluded && excluded[ymdKey(d)]);
+}
+
+// <input type="date"> 給的是 YYYY-MM-DD，手動拆字串
+function parseDateInput(str, label){
+  var s = String(str || '').trim();
+  if (s === '') return err((label || '日期') + '尚未填入');
+  var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s.replace(/\//g, '-'));
+  if (!m) return err((label || '日期') + '格式需為 YYYY-MM-DD');
+  var y = +m[1], mo = +m[2], da = +m[3];
+  var d = new Date(y, mo - 1, da);
+  if (d.getMonth() !== mo - 1 || d.getDate() !== da)
+    return err((label || '日期') + ' ' + s + ' 不是實際存在的日期');
+  return ok({ date: d });
+}
+
+function parseExcludedDates(str){
+  var s = String(str || '').replace(/[,;]/g, ' ').replace(/[\r\n\t]/g, ' ').trim();
+  if (s === '') return ok({ set: {}, list: [] });
+  var toks = s.split(/\s+/), set = {}, list = [];
+  for (var i = 0; i < toks.length; i++){
+    var t = toks[i].replace(/\//g, '-');
+    var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+    if (!m) return err('排除日期「' + toks[i] + '」格式不符，需為 YYYY-MM-DD');
+    var d = new Date(+m[1], +m[2] - 1, +m[3]);
+    if (d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3])
+      return err('排除日期「' + toks[i] + '」不是實際存在的日期');
+    var k = ymdKey(d);
+    if (!set[k]){ set[k] = true; list.push(k); }
+  }
+  list.sort();
+  return ok({ set: set, list: list });
+}
+
+// ---- 工作天 ----
+// 一律「含起日、不含迄日」，與完成度的定義一致：起日為 0、迄日為滿。
+function countWorkdays(from, to, excluded){
+  var n = dayDiff(from, to);
+  if (n <= 0) return 0;
+  var c = 0, d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  for (var i = 0; i < n; i++){
+    if (isWorkday(d, excluded)) c++;
+    d = dateAddDays(d, 1);
+  }
+  return c;
+}
+
+// 從 from 起算（含 from）的第 n 個工作日，n 為 1 起算
+function nthWorkday(from, n, excluded){
+  if (n < 1) return new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  var d = new Date(from.getFullYear(), from.getMonth(), from.getDate()), c = 0, guard = 0;
+  while (guard++ < 20000){
+    if (isWorkday(d, excluded)){
+      c++;
+      if (c === n) return d;
+    }
+    d = dateAddDays(d, 1);
+  }
+  return d;
+}
+
+// ---- 完成度 ----
+// 天數以日期差計算：開始日 0%、結束日 100%。
+function clamp01(x){ return x < 0 ? 0 : (x > 1 ? 1 : x); }
+
+function calendarProgress(start, end, asOf){
+  var total = dayDiff(start, end);
+  if (total <= 0) return err('結束日必須晚於開始日');
+  var done = dayDiff(start, asOf);
+  return ok({
+    total: total,
+    done: done,
+    left: total - done,
+    ratio: clamp01(done / total),
+    rawRatio: done / total
+  });
+}
+
+function workdayProgress(start, end, asOf, excluded){
+  var total = countWorkdays(start, end, excluded);
+  var done = countWorkdays(start, asOf, excluded);
+  if (dayDiff(start, asOf) < 0) done = 0;
+  var left = total - done;
+  if (left < 0) left = 0;
+  return ok({
+    total: total,
+    done: done > total ? total : done,
+    left: left,
+    ratio: total > 0 ? clamp01(done / total) : 0
+  });
+}
+
+// ---- 反推：完成度 -> 日期 ----
+function dateAtCalendarRatio(start, end, ratio){
+  var total = dayDiff(start, end);
+  if (total <= 0) return err('結束日必須晚於開始日');
+  var r = clamp01(ratio);
+  return ok({ date: dateAddDays(start, Math.round(r * total)) });
+}
+
+function dateAtWorkdayRatio(start, end, ratio, excluded){
+  var total = countWorkdays(start, end, excluded);
+  if (total <= 0) return err('期間內沒有工作天');
+  var r = clamp01(ratio);
+  if (r <= 0) return ok({ date: new Date(start.getFullYear(), start.getMonth(), start.getDate()) });
+  var n = Math.ceil(r * total);
+  if (n > total) n = total;
+  return ok({ date: nthWorkday(start, n, excluded) });
+}
+
+// ---- 里程碑 ----
+// rows: [{ name, date(字串) }]，沒填日期的整列略過，沒填名稱的自動給編號
+function parseMilestones(rows){
+  var out = [], skipped = 0;
+  for (var i = 0; i < rows.length; i++){
+    var raw = rows[i] || {};
+    var ds = String(raw.date || '').trim();
+    var nm = String(raw.name || '').trim();
+    if (ds === ''){ if (nm !== '') skipped++; continue; }
+    var p = parseDateInput(ds, '里程碑日期');
+    if (!p.ok) return err('第 ' + (i + 1) + ' 個里程碑：' + p.error);
+    out.push({ name: nm === '' ? '里程碑 ' + (out.length + 1) : nm, date: p.date });
+  }
+  out.sort(function(a, b){ return dayNumber(a.date) - dayNumber(b.date); });
+  return ok({ list: out, skipped: skipped });
+}
+
+// 單一里程碑相對於期間與基準日的所有數字
+function milestoneStats(ms, start, end, asOf, excluded){
+  var total = dayDiff(start, end);
+  var fromStart = dayDiff(start, ms.date);
+  var fromAsOf = dayDiff(asOf, ms.date);
+  return {
+    name: ms.name,
+    date: ms.date,
+    fromStartDays: fromStart,
+    fromStartWorkdays: countWorkdays(start, ms.date, excluded),
+    toGoDays: fromAsOf,
+    toGoWorkdays: fromAsOf > 0 ? countWorkdays(asOf, ms.date, excluded)
+                               : -countWorkdays(ms.date, asOf, excluded),
+    ratio: total > 0 ? fromStart / total : 0,
+    outOfRange: fromStart < 0 || fromStart > total,
+    passed: fromAsOf < 0
+  };
+}
+
+// ---- 顯示格式 ----
+function weekdayZh(d){ return WEEKDAY_ZH[d.getDay()]; }
+
+function fmtDate(d){
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
+function fmtDateW(d){ return fmtDate(d) + '（' + weekdayZh(d) + '）'; }
+
+function fmtPct(r){
+  var v = r * 100;
+  var s = (Math.round(v * 10) / 10).toFixed(1);
+  if (s.slice(-2) === '.0') s = s.slice(0, -2);
+  return s + '%';
+}
+
+function fmtDays(n){
+  if (n === 0) return '0 天';
+  return (n < 0 ? '已過 ' + Math.abs(n) : String(n)) + ' 天';
+}
+
+// 回報用的一行摘要，純文字、用連字號不用中間點
+function buildSummary(s){
+  return fmtDate(s.start) + ' - ' + fmtDate(s.end) +
+    '，截至 ' + fmtDate(s.asOf) +
+    ' 完成度 ' + fmtPct(s.calRatio) + '（工作天 ' + fmtPct(s.wdRatio) + '）' +
+    '，距離結束 ' + Math.max(0, s.calLeft) + ' 天（工作天 ' + s.wdLeft + ' 天）' +
+    (s.nextName ? '，下一個里程碑 ' + s.nextName + ' ' + fmtDate(s.nextDate) : '');
+}
+
+// ===== TESTS =====
+// 基準：2026-09-04 為週五。09-05/06、09-12/13、09-19/20、09-26/27 為週末。
+var D = function(y, m, d){ return new Date(y, m - 1, d); };
+var S = D(2026, 9, 4), E = D(2026, 9, 30), GO = D(2026, 9, 16);
+var NONE = {};
+var EXC = function(str){ return parseExcludedDates(str).set; };
+
+var TESTS = [
+  // ---- 天數 ----
+  { name: '天數差：9/4 到 9/30',            fn: function(){ return dayDiff(S, E); }, want: 26 },
+  { name: '天數差：9/4 到 GO 9/16',          fn: function(){ return dayDiff(S, GO); }, want: 12 },
+  { name: '天數差：同日為 0',                fn: function(){ return dayDiff(S, S); }, want: 0 },
+  { name: '天數差：反向為負',                fn: function(){ return dayDiff(E, S); }, want: -26 },
+  { name: '天數差：跨年',                    fn: function(){ return dayDiff(D(2026, 12, 30), D(2027, 1, 5)); }, want: 6 },
+  { name: '加天數：9/4 + 26',                fn: function(){ return fmtDate(dateAddDays(S, 26)); }, want: '2026-09-30' },
+
+  // ---- 工作天（含起日、不含迄日）----
+  { name: '工作天：9/4 到 9/30 共 18',       fn: function(){ return countWorkdays(S, E, NONE); }, want: 18 },
+  { name: '工作天：9/4 到 GO 共 8',          fn: function(){ return countWorkdays(S, GO, NONE); }, want: 8 },
+  { name: '工作天：同日為 0',                fn: function(){ return countWorkdays(S, S, NONE); }, want: 0 },
+  { name: '工作天：只有週末為 0',            fn: function(){ return countWorkdays(D(2026, 9, 5), D(2026, 9, 7), NONE); }, want: 0 },
+  { name: '工作天：扣掉排除日',              fn: function(){ return countWorkdays(S, GO, EXC('2026-09-07')); }, want: 7 },
+  { name: '工作天：排除日落在週末不重複扣',   fn: function(){ return countWorkdays(S, GO, EXC('2026-09-05')); }, want: 8 },
+  { name: '第 n 個工作日：第 1 個',          fn: function(){ return fmtDateW(nthWorkday(S, 1, NONE)); }, want: '2026-09-04（週五）' },
+  { name: '第 n 個工作日：第 2 個跳過週末',   fn: function(){ return fmtDateW(nthWorkday(S, 2, NONE)); }, want: '2026-09-07（週一）' },
+  { name: '第 n 個工作日：第 18 個',         fn: function(){ return fmtDateW(nthWorkday(S, 18, NONE)); }, want: '2026-09-29（週二）' },
+
+  // ---- 完成度 ----
+  { name: '完成度：截至 GO 的日曆天',        fn: function(){ return fmtPct(calendarProgress(S, E, GO).ratio); }, want: '46.2%' },
+  { name: '完成度：截至 GO 的工作天',        fn: function(){ return fmtPct(workdayProgress(S, E, GO, NONE).ratio); }, want: '44.4%' },
+  { name: '完成度：起日為 0%',               fn: function(){ return fmtPct(calendarProgress(S, E, S).ratio); }, want: '0%' },
+  { name: '完成度：迄日為 100%',             fn: function(){ return fmtPct(calendarProgress(S, E, E).ratio); }, want: '100%' },
+  { name: '完成度：早於起日夾在 0%',         fn: function(){ return fmtPct(calendarProgress(S, E, D(2026, 8, 20)).ratio); }, want: '0%' },
+  { name: '完成度：晚於迄日夾在 100%',       fn: function(){ return fmtPct(calendarProgress(S, E, D(2026, 10, 20)).ratio); }, want: '100%' },
+  { name: '完成度：剩餘天數',                fn: function(){ return calendarProgress(S, E, GO).left; }, want: 14 },
+  { name: '完成度：剩餘工作天',              fn: function(){ return workdayProgress(S, E, GO, NONE).left; }, want: 10 },
+  { name: '完成度：超過迄日剩餘為負',        fn: function(){ return calendarProgress(S, E, D(2026, 10, 5)).left; }, want: -5 },
+  { name: '完成度：迄日不晚於起日報錯',      fn: function(){ var r = calendarProgress(E, S, GO); return r.ok ? 'NO ERROR' : r.error; }, want: '結束日必須晚於開始日' },
+
+  // ---- 反推 ----
+  { name: '反推：50% 的日曆天日期',          fn: function(){ return fmtDateW(dateAtCalendarRatio(S, E, 0.5).date); }, want: '2026-09-17（週四）' },
+  { name: '反推：50% 的工作天日期',          fn: function(){ return fmtDateW(dateAtWorkdayRatio(S, E, 0.5, NONE).date); }, want: '2026-09-16（週三）' },
+  { name: '反推：70% 的日曆天日期',          fn: function(){ return fmtDateW(dateAtCalendarRatio(S, E, 0.7).date); }, want: '2026-09-22（週二）' },
+  { name: '反推：70% 的工作天日期',          fn: function(){ return fmtDateW(dateAtWorkdayRatio(S, E, 0.7, NONE).date); }, want: '2026-09-22（週二）' },
+  { name: '反推：0% 為起日',                 fn: function(){ return fmtDate(dateAtCalendarRatio(S, E, 0).date); }, want: '2026-09-04' },
+  { name: '反推：100% 為迄日',               fn: function(){ return fmtDate(dateAtCalendarRatio(S, E, 1).date); }, want: '2026-09-30' },
+  { name: '反推：100% 的工作天為最後工作日', fn: function(){ return fmtDateW(dateAtWorkdayRatio(S, E, 1, NONE).date); }, want: '2026-09-29（週二）' },
+  { name: '反推：超過 100% 夾住',            fn: function(){ return fmtDate(dateAtCalendarRatio(S, E, 1.5).date); }, want: '2026-09-30' },
+  { name: '反推：與完成度來回一致',          fn: function(){ var d = dateAtCalendarRatio(S, E, 0.5).date; return fmtPct(calendarProgress(S, E, d).ratio); }, want: '50%' },
+
+  // ---- 里程碑 ----
+  { name: '里程碑：依日期排序',              fn: function(){ return parseMilestones([{ name: 'B', date: '2026-09-22' }, { name: 'GO', date: '2026-09-16' }]).list.map(function(m){ return m.name; }).join(','); }, want: 'GO,B' },
+  { name: '里程碑：沒填日期的略過',          fn: function(){ return parseMilestones([{ name: 'GO', date: '' }, { name: 'B', date: '2026-09-22' }]).list.length; }, want: 1 },
+  { name: '里程碑：沒名稱自動編號',          fn: function(){ return parseMilestones([{ name: '', date: '2026-09-16' }]).list[0].name; }, want: '里程碑 1' },
+  { name: '里程碑：日期錯誤回報第幾個',      fn: function(){ var r = parseMilestones([{ name: 'A', date: '2026-09-16' }, { name: 'B', date: '2026-02-30' }]); return r.ok ? 'NO ERROR' : r.error; }, want: '第 2 個里程碑：里程碑日期 2026-02-30 不是實際存在的日期' },
+  { name: '里程碑：GO 的起算天數',           fn: function(){ return milestoneStats({ name: 'GO', date: GO }, S, E, GO, NONE).fromStartDays; }, want: 12 },
+  { name: '里程碑：GO 的起算工作天',         fn: function(){ return milestoneStats({ name: 'GO', date: GO }, S, E, GO, NONE).fromStartWorkdays; }, want: 8 },
+  { name: '里程碑：距 GO 還有幾天',          fn: function(){ return milestoneStats({ name: 'GO', date: GO }, S, E, D(2026, 9, 11), NONE).toGoDays; }, want: 5 },
+  { name: '里程碑：距 GO 還有幾個工作天',    fn: function(){ return milestoneStats({ name: 'GO', date: GO }, S, E, D(2026, 9, 11), NONE).toGoWorkdays; }, want: 3 },
+  { name: '里程碑：已過的以負數表示',        fn: function(){ return milestoneStats({ name: 'GO', date: GO }, S, E, D(2026, 9, 20), NONE).toGoDays; }, want: -4 },
+  { name: '里程碑：已過旗標',                fn: function(){ return milestoneStats({ name: 'GO', date: GO }, S, E, D(2026, 9, 20), NONE).passed; }, want: true },
+  { name: '里程碑：GO 的完成度',             fn: function(){ return fmtPct(milestoneStats({ name: 'GO', date: GO }, S, E, GO, NONE).ratio); }, want: '46.2%' },
+  { name: '里程碑：超出期間會標記',          fn: function(){ return milestoneStats({ name: 'X', date: D(2026, 10, 5) }, S, E, GO, NONE).outOfRange; }, want: true },
+  { name: '里程碑：期間內不標記',            fn: function(){ return milestoneStats({ name: 'GO', date: GO }, S, E, GO, NONE).outOfRange; }, want: false },
+
+  // ---- 解析 ----
+  { name: '解析：日期輸入',                  fn: function(){ return fmtDateW(parseDateInput('2026-09-16', '日期').date); }, want: '2026-09-16（週三）' },
+  { name: '解析：空日期報錯',                fn: function(){ var r = parseDateInput('', '開始日'); return r.ok ? 'NO ERROR' : r.error; }, want: '開始日尚未填入' },
+  { name: '解析：不存在的日期報錯',          fn: function(){ var r = parseDateInput('2026-02-30', '開始日'); return r.ok ? 'NO ERROR' : r.error; }, want: '開始日 2026-02-30 不是實際存在的日期' },
+  { name: '解析：排除日期多種分隔',          fn: function(){ return parseExcludedDates('2026-09-28, 2026/9/29\n2026-09-30').list.join('|'); }, want: '2026-09-28|2026-09-29|2026-09-30' },
+  { name: '解析：排除日期格式錯誤',          fn: function(){ var r = parseExcludedDates('9/28'); return r.ok ? 'NO ERROR' : r.error; }, want: '排除日期「9/28」格式不符，需為 YYYY-MM-DD' },
+
+  // ---- 顯示格式 ----
+  { name: '格式：百分比去尾零',              fn: function(){ return fmtPct(0.5); }, want: '50%' },
+  { name: '格式：百分比一位小數',            fn: function(){ return fmtPct(1 / 3); }, want: '33.3%' },
+  { name: '格式：天數',                      fn: function(){ return fmtDays(14); }, want: '14 天' },
+  { name: '格式：負天數寫成已過',            fn: function(){ return fmtDays(-4); }, want: '已過 4 天' },
+  { name: '格式：週幾',                      fn: function(){ return weekdayZh(S); }, want: '週五' },
+
+  // ---- 回報摘要 ----
+  { name: '摘要：一行純文字',                fn: function(){
+      return buildSummary({
+        start: S, end: E, asOf: GO,
+        calRatio: 12 / 26, wdRatio: 8 / 18, calLeft: 14, wdLeft: 10,
+        nextName: 'GO', nextDate: GO
+      });
+    },
+    want: '2026-09-04 - 2026-09-30，截至 2026-09-16 完成度 46.2%（工作天 44.4%），距離結束 14 天（工作天 10 天），下一個里程碑 GO 2026-09-16' }
+];
+
+function runTests(){
+  return TESTS.map(function(t){
+    var got, pass;
+    try { got = t.fn(); } catch (e){ got = 'THREW: ' + e.message; }
+    if (typeof t.want === 'number' && typeof got === 'number' && t.tol != null)
+      pass = Math.abs(got - t.want) <= t.tol;
+    else pass = String(got) === String(t.want);
+    return { name: t.name, want: String(t.want), got: String(got), pass: pass };
+  });
+}
+
+// ===== END CORE =====
+
+// ===== DOM =====
+var VERSION = '1.0.0';
+
+var store = {
+  get: function(k, fallback){
+    try { var v = localStorage.getItem(k); return v === null ? fallback : JSON.parse(v); }
+    catch (e){ return fallback; }
+  },
+  set: function(k, v){
+    try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e){ return false; }
+  }
+};
+
+var FIELD_IDS = ['start', 'end', 'asof', 'excl', 'pct'];
+var KEY = 'mpc.v1';
+
+var PFX = 'mpc-';
+var $ = function(id){ return document.getElementById(PFX + id); };
+function val(id){ return $(id).value; }
+
+function escapeHtml(s){
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function todayISO(){
+  var d = new Date();
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
+// ---- 里程碑輸入列 ----
+// 列的 DOM 保持穩定，打字時只重算不重建，游標才不會跳
+function readMilestoneRows(){
+  var rows = [], nodes = $('msRows').querySelectorAll('.ms-row');
+  for (var i = 0; i < nodes.length; i++){
+    rows.push({
+      name: nodes[i].querySelector('.name').value,
+      date: nodes[i].querySelector('.date').value
+    });
+  }
+  return rows;
+}
+
+function milestoneRowHtml(name, date){
+  return '<div class="ms-row">' +
+    '<input class="name" type="text" autocomplete="off" placeholder="GO" aria-label="里程碑名稱"' +
+    ' value="' + escapeHtml(name || '') + '" oninput="MPC.onInput()">' +
+    '<input class="date" type="date" aria-label="里程碑日期"' +
+    ' value="' + escapeHtml(date || '') + '" oninput="MPC.onInput()">' +
+    '<button type="button" onclick="MPC.onRemoveMilestone(this)">移除</button>' +
+  '</div>';
+}
+
+function buildMilestoneRows(rows){
+  if (!rows.length) rows = [{ name: '', date: '' }];
+  $('msRows').innerHTML = rows.map(function(r){ return milestoneRowHtml(r.name, r.date); }).join('');
+}
+
+// ---- 狀態存取 ----
+function saveState(){
+  var o = { f: {}, ms: readMilestoneRows() };
+  FIELD_IDS.forEach(function(id){ o.f[id] = val(id); });
+  store.set(KEY, o);
+}
+
+function loadState(){
+  var o = store.get(KEY, null);
+  if (o && o.f) FIELD_IDS.forEach(function(id){ if (typeof o.f[id] === 'string') $(id).value = o.f[id]; });
+  buildMilestoneRows((o && o.ms) ? o.ms : []);
+  if (val('asof') === '') $('asof').value = todayISO();
+}
+
+// ---- 讀取設定 ----
+function readConfig(){
+  var s = parseDateInput(val('start'), '開始日');
+  if (!s.ok) return err(s.error);
+  var e = parseDateInput(val('end'), '結束日');
+  if (!e.ok) return err(e.error);
+  if (dayDiff(s.date, e.date) <= 0) return err('結束日必須晚於開始日');
+  var a = parseDateInput(val('asof'), '基準日');
+  if (!a.ok) return err(a.error);
+  var x = parseExcludedDates(val('excl'));
+  if (!x.ok) return err(x.error);
+  var ms = parseMilestones(readMilestoneRows());
+  if (!ms.ok) return err(ms.error);
+  return ok({ start: s.date, end: e.date, asOf: a.date, excluded: x.set, milestones: ms.list });
+}
+
+// ---- 渲染 ----
+var lastSummary = '';
+
+function renderAll(){
+  $('verTag').textContent = 'v' + VERSION;
+
+  var cfg = readConfig();
+  var msg = $('msg');
+
+  if (!cfg.ok){
+    lastSummary = '';
+    $('prog').textContent = '填入開始日與結束日後，這裡會顯示完成度';
+    $('prog').className = 'val empty';
+    $('copySum').disabled = true;
+    $('barWrap').hidden = true;
+    $('stats').hidden = true;
+    $('msTableWrap').hidden = true;
+    $('msMsg').textContent = '';
+    msg.className = 'msg err';
+    msg.innerHTML = '<span class="tag">還缺</span> ' + escapeHtml(cfg.error);
+    renderReverse(null);
+    return;
+  }
+
+  msg.className = 'msg';
+  msg.textContent = '';
+
+  var cal = calendarProgress(cfg.start, cfg.end, cfg.asOf);
+  var wd = workdayProgress(cfg.start, cfg.end, cfg.asOf, cfg.excluded);
+
+  $('prog').textContent = fmtPct(cal.ratio);
+  $('prog').className = 'val';
+  $('copySum').disabled = false;
+
+  // 進度條與里程碑刻度
+  $('barWrap').hidden = false;
+  $('fill').style.width = (cal.ratio * 100) + '%';
+  var ticks = $('barWrap').querySelectorAll('.tick');
+  for (var t = ticks.length - 1; t >= 0; t--) ticks[t].parentNode.removeChild(ticks[t]);
+  var track = $('barWrap').querySelector('.track');
+  cfg.milestones.forEach(function(m){
+    var st = milestoneStats(m, cfg.start, cfg.end, cfg.asOf, cfg.excluded);
+    if (st.outOfRange) return;
+    var el = document.createElement('span');
+    el.className = 'tick';
+    el.style.left = (st.ratio * 100) + '%';
+    el.title = m.name + ' ' + fmtDate(m.date);
+    track.appendChild(el);
+  });
+  $('endLeft').textContent = fmtDate(cfg.start);
+  $('endRight').textContent = fmtDate(cfg.end);
+
+  var overrun = cal.left < 0;
+  $('stats').hidden = false;
+  $('stats').innerHTML = [
+    ['完成度（工作天）', fmtPct(wd.ratio)],
+    ['已過', cal.done + ' 天（工作天 ' + wd.done + '）'],
+    [overrun ? '已超過結束日' : '距離結束',
+      (overrun ? Math.abs(cal.left) : cal.left) + ' 天（工作天 ' + wd.left + '）'],
+    ['總期間', cal.total + ' 天（工作天 ' + wd.total + '）'],
+    ['基準日', fmtDateW(cfg.asOf)]
+  ].map(function(p){
+    return '<div><span class="k">' + escapeHtml(p[0]) + '</span><span class="v">' +
+           escapeHtml(p[1]) + '</span></div>';
+  }).join('');
+
+  renderMilestoneTable(cfg, cal);
+  renderReverse(cfg);
+
+  var next = null;
+  for (var i = 0; i < cfg.milestones.length; i++){
+    if (dayDiff(cfg.asOf, cfg.milestones[i].date) >= 0){ next = cfg.milestones[i]; break; }
+  }
+  lastSummary = buildSummary({
+    start: cfg.start, end: cfg.end, asOf: cfg.asOf,
+    calRatio: cal.ratio, wdRatio: wd.ratio,
+    calLeft: cal.left, wdLeft: wd.left,
+    nextName: next ? next.name : '', nextDate: next ? next.date : null
+  });
+}
+
+function renderMilestoneTable(cfg, cal){
+  var rows = cfg.milestones;
+  if (!rows.length){
+    $('msTableWrap').hidden = true;
+    $('msMsg').className = 'msg';
+    $('msMsg').textContent = '填入名稱與日期後，這裡會列出每個里程碑的天數與完成度。';
+    return;
+  }
+  $('msTableWrap').hidden = false;
+
+  var warns = [];
+  $('msBody').innerHTML = rows.map(function(m){
+    var st = milestoneStats(m, cfg.start, cfg.end, cfg.asOf, cfg.excluded);
+    if (st.outOfRange) warns.push(m.name);
+    var toGo = st.passed
+      ? '已過 ' + Math.abs(st.toGoDays) + ' 天（工作天 ' + Math.abs(st.toGoWorkdays) + '）'
+      : st.toGoDays + ' 天（工作天 ' + st.toGoWorkdays + '）';
+    return '<tr class="' + (st.passed ? 'passed' : '') + '">' +
+      '<td class="nm" data-label="里程碑">' + escapeHtml(m.name) +
+        (st.outOfRange ? ' <span class="flag">超出期間</span>' : '') + '</td>' +
+      '<td class="t" data-label="日期">' + fmtDateW(m.date) + '</td>' +
+      '<td class="t" data-label="開始到此">' + st.fromStartDays + ' 天（工作天 ' + st.fromStartWorkdays + '）</td>' +
+      '<td class="t" data-label="距基準日">' + toGo + '</td>' +
+      '<td class="t" data-label="完成度">' + fmtPct(st.ratio) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  if (warns.length){
+    $('msMsg').className = 'msg warn';
+    $('msMsg').innerHTML = '<span class="tag">注意</span> ' +
+      escapeHtml(warns.join('、')) + ' 落在期間之外，完成度會超出 0 到 100% 的範圍。';
+  } else {
+    $('msMsg').className = 'msg';
+    $('msMsg').textContent = '';
+  }
+}
+
+function renderReverse(cfg){
+  var c = $('revCal'), w = $('revWd');
+  if (!cfg){
+    c.textContent = '期間算出來之後才能反推';
+    c.className = 'val sub empty';
+    w.textContent = '—';
+    return;
+  }
+  var raw = val('pct').replace(/[\s,%]/g, '');
+  if (raw === ''){
+    c.textContent = '填入完成度後顯示';
+    c.className = 'val sub empty';
+    w.textContent = '—';
+    return;
+  }
+  if (!/^\d+(\.\d+)?$/.test(raw)){
+    c.textContent = '完成度需為 0 到 100 的數字';
+    c.className = 'val sub empty';
+    w.textContent = '—';
+    return;
+  }
+  var pct = Number(raw);
+  if (pct > 100){
+    c.textContent = '完成度不能超過 100%';
+    c.className = 'val sub empty';
+    w.textContent = '—';
+    return;
+  }
+  var r = pct / 100;
+  var rc = dateAtCalendarRatio(cfg.start, cfg.end, r);
+  var rw = dateAtWorkdayRatio(cfg.start, cfg.end, r, cfg.excluded);
+  c.textContent = fmtPct(r) + '　' + fmtDateW(rc.date);
+  c.className = 'val sub';
+  w.textContent = rw.ok ? fmtDateW(rw.date) : rw.error;
+}
+
+// ---- 事件 ----
+function onInput(){ saveState(); renderAll(); }
+
+// ---- 供外殼的「存檔」使用 ----
+function snapshot(){
+  var o = { f: {}, ms: readMilestoneRows() };
+  FIELD_IDS.forEach(function(id){ o.f[id] = val(id); });
+  return o;
+}
+
+function restore(o){
+  if (!o) return;
+  if (o.f) FIELD_IDS.forEach(function(id){ if (typeof o.f[id] === 'string') $(id).value = o.f[id]; });
+  buildMilestoneRows(o.ms || []);
+  saveState();
+  renderAll();
+}
+
+function summary(){
+  var cfg = readConfig();
+  if (!cfg.ok) return '';
+  var cal = calendarProgress(cfg.start, cfg.end, cfg.asOf);
+  return fmtDate(cfg.start) + ' - ' + fmtDate(cfg.end) + '\u3000' + fmtPct(cal.ratio);
+}
+
+function onAddMilestone(){
+  var rows = readMilestoneRows();
+  rows.push({ name: '', date: '' });
+  buildMilestoneRows(rows);
+  saveState();
+  renderAll();
+  var names = $('msRows').querySelectorAll('.name');
+  if (names.length) names[names.length - 1].focus();
+}
+
+function onRemoveMilestone(btn){
+  var row = btn.parentNode;
+  var rows = readMilestoneRows();
+  var nodes = $('msRows').querySelectorAll('.ms-row');
+  for (var i = 0; i < nodes.length; i++) if (nodes[i] === row) rows.splice(i, 1);
+  buildMilestoneRows(rows);
+  saveState();
+  renderAll();
+}
+
+function onClear(){
+  FIELD_IDS.forEach(function(id){ $(id).value = ''; });
+  $('asof').value = todayISO();
+  buildMilestoneRows([]);
+  saveState();
+  renderAll();
+  $('start').focus();
+}
+
+function onCopySummary(btn){
+  if (!lastSummary) return;
+  onCopyText(lastSummary, btn);
+}
+
+function onCopyText(text, btn){
+  var done = function(){
+    var old = btn.textContent;
+    btn.textContent = '已複製';
+    setTimeout(function(){ btn.textContent = old; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done, function(){ legacyCopy(text, done); });
+  } else legacyCopy(text, done);
+}
+
+function legacyCopy(text, done){
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    done();
+  } catch (e){ /* 複製失敗時不干擾計算結果 */ }
+}
+
+// 自我檢查在載入時靜默執行：全過就完全不顯示，有錯才跳出警示列。
+function checkSelfTest(){
+  var rows = runTests();
+  var failed = rows.filter(function(r){ return !r.pass; });
+  var box = $('testFail');
+  if (failed.length === 0){ box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<b>日期自我檢查失敗：' + failed.length + '/' + rows.length +
+    ' 項不符預期，結果可能不可信。</b><ul>' +
+    failed.map(function(r){
+      return '<li>' + escapeHtml(r.name) + ' — want ' + escapeHtml(r.want) +
+             ', got ' + escapeHtml(r.got) + '</li>';
+    }).join('') + '</ul>';
+}
+
+loadState();
+renderAll();
+
+return { onInput: onInput, onClear: onClear, onAddMilestone: onAddMilestone, onRemoveMilestone: onRemoveMilestone, onCopySummary: onCopySummary, snapshot: snapshot, restore: restore, summary: summary, runTests: runTests, TESTS: TESTS };
+})();
+
+
+// ===== 外殼 =====
+var HRV = (function(){
+  var TOOLS = [
+  { key: 'sc', ns: SC, label: 'String Converter', hash: 'string-converter', hist: true },
+  { key: 'tq', ns: TQ, label: 'Torque Converter', hash: 'torque-converter', hist: true },
+  { key: 'nop', ns: NOP, label: 'Non-Op Test Time Calculator', hash: 'non-op-test-time', slots: true },
+  { key: 'mpc', ns: MPC, label: 'Milestone Progress Calculator', hash: 'milestone-progress', slots: true },
+    { key: 'about', ns: null, label: '關於與離線 About', hash: 'about', hidden: true }
+  ];
+
+  var store = {
+    get: function(k, f){
+      try { var v = localStorage.getItem(k); return v === null ? f : JSON.parse(v); }
+      catch (e){ return f; }
+    },
+    set: function(k, v){
+      try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e){ return false; }
+    }
+  };
+
+  function byKey(k){
+    for (var i = 0; i < TOOLS.length; i++) if (TOOLS[i].key === k) return TOOLS[i];
+    return null;
+  }
+
+  function byHash(h){
+    for (var i = 0; i < TOOLS.length; i++) if (TOOLS[i].hash === h) return TOOLS[i];
+    return null;
+  }
+
+  function select(key, skipHash){
+    var t = byKey(key) || TOOLS[0];
+    TOOLS.forEach(function(x){
+      document.getElementById('p-' + x.key).hidden = x.key !== t.key;
+      document.getElementById('nav-' + x.key).setAttribute('aria-pressed', x.key === t.key ? 'true' : 'false');
+    });
+    document.title = t.label + ' — HRV Toolkit';
+    store.set('hrv.tool', t.key);
+    if (!skipHash && location.hash.slice(1) !== t.hash){
+      try { history.replaceState(null, '', '#' + t.hash); }
+      catch (e){ location.hash = t.hash; }
+    }
+    return t.key;
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // ===== 最近五筆 / 存檔（共用機制）=====
+  // 工具端只要提供 snapshot() / restore(o) / summary()，這兩個功能就自動成立。
+  var MAX_HIST = 5, N_SLOTS = 5;
+  // 換算完之後要「靜」多久才認定使用者找到答案了、值得記一筆。
+  // 做成可覆寫的變數（HRV.hist.idleMs），否則這個規則沒辦法在合理時間內實測。
+  var IDLE_MS = 180000;
+  var suppress = {};   // 剛還原完不要馬上把同一筆再記一次
+
+  function pad2(n){ return String(n).padStart(2, '0'); }
+
+  function stamp(t){
+    var d = new Date(t);
+    return pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' +
+           pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+
+  function nsOf(p){
+    var t = byKey(p);
+    return (t && t.ns && t.ns.snapshot && t.ns.restore && t.ns.summary) ? t.ns : null;
+  }
+
+  function note(id, msg, bad){
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'ext-note' + (bad ? ' bad' : '');
+  }
+
+  var hist = {
+    idleMs: IDLE_MS,
+
+    load: function(p){
+      var a = store.get('hrv.hist.' + p, []);
+      return Object.prototype.toString.call(a) === '[object Array]' ? a : [];
+    },
+    save: function(p, a){ store.set('hrv.hist.' + p, a.slice(0, MAX_HIST)); },
+
+    // 換算成功才記，同一組輸入只留一筆並移到最前
+    record: function(p){
+      var ns = nsOf(p);
+      if (!ns) return;
+      if (suppress[p] && Date.now() - suppress[p] < 2500) return;
+      var sum, snap;
+      try { sum = ns.summary(); snap = ns.snapshot(); } catch (e){ return; }
+      if (!sum) return;
+      var key = JSON.stringify(snap);
+      var arr = hist.load(p).filter(function(x){ return x.key !== key; });
+      arr.unshift({ key: key, sum: sum, t: Date.now(), snap: snap });
+      hist.save(p, arr);
+      hist.render(p);
+    },
+
+    toggle: function(p){
+      var wrap = document.getElementById(p + '-histWrap');
+      var btn = document.getElementById(p + '-histBtn');
+      if (!wrap || !btn) return;
+      var open = wrap.hidden;
+      wrap.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.textContent = open ? '收合 Hide' : '展開 Show';
+      if (open) hist.render(p);
+    },
+
+    render: function(p){
+      var list = document.getElementById(p + '-histList');
+      if (!list) return;
+      var arr = hist.load(p);
+      if (!arr.length){
+        list.innerHTML = '<li class="ext-empty">還沒有記錄。換算完後三分鐘沒有再動作，就會自動記下這一組，最多留五筆。</li>';
+        note(p + '-histNote', '', false);
+        return;
+      }
+      list.innerHTML = arr.map(function(e, i){
+        return '<li><button type="button" class="ext-row" onclick="HRV.hist.apply(\'' + p + '\',' + i + ')">' +
+          '<span class="sum">' + escapeHtml(e.sum) + '</span>' +
+          '<span class="when">' + stamp(e.t) + '</span></button></li>';
+      }).join('');
+      note(p + '-histNote', '換算完後三分鐘沒有再動作才會記下這一組。點任一筆即可帶回輸入欄，新的在最上面，只存在這台裝置。', false);
+    },
+
+    apply: function(p, i){
+      var ns = nsOf(p), arr = hist.load(p);
+      if (!ns || !arr[i]) return;
+      suppress[p] = Date.now();
+      ns.restore(arr[i].snap);
+    },
+
+    clear: function(p){ store.set('hrv.hist.' + p, []); hist.render(p); }
+  };
+
+  var slot = {
+    load: function(p){
+      var a = store.get('hrv.saves.' + p, []);
+      if (Object.prototype.toString.call(a) !== '[object Array]') a = [];
+      a = a.slice(0, N_SLOTS);
+      while (a.length < N_SLOTS) a.push(null);
+      return a;
+    },
+    save: function(p, a){ store.set('hrv.saves.' + p, a); },
+
+    put: function(p, i){
+      var ns = nsOf(p);
+      if (!ns) return;
+      var sum;
+      try { sum = ns.summary(); } catch (e){ sum = ''; }
+      if (!sum){
+        note(p + '-slotNote', '目前的輸入還不完整，沒有東西可以存。', true);
+        return;
+      }
+      var el = document.getElementById(p + '-saveName');
+      var nm = el ? String(el.value).trim() : '';
+      var arr = slot.load(p);
+      arr[i] = { name: nm === '' ? stamp(Date.now()) : nm, sum: sum, t: Date.now(), snap: ns.snapshot() };
+      slot.save(p, arr);
+      slot.render(p);
+      note(p + '-slotNote', 'Save #' + (i + 1) + ' 已存入。', false);
+    },
+
+    get: function(p, i){
+      var ns = nsOf(p), arr = slot.load(p);
+      if (!ns || !arr[i]) return;
+      suppress[p] = Date.now();
+      ns.restore(arr[i].snap);
+      var el = document.getElementById(p + '-saveName');
+      if (el) el.value = arr[i].name || '';
+      note(p + '-slotNote', 'Save #' + (i + 1) + '「' + arr[i].name + '」已讀取。', false);
+    },
+
+    del: function(p, i){
+      var arr = slot.load(p);
+      if (!arr[i]) return;
+      arr[i] = null;
+      slot.save(p, arr);
+      slot.render(p);
+      note(p + '-slotNote', 'Save #' + (i + 1) + ' 已清除。', false);
+    },
+
+    render: function(p){
+      var list = document.getElementById(p + '-slotList');
+      if (!list) return;
+      list.innerHTML = slot.load(p).map(function(e, i){
+        var empty = !e;
+        var dis = empty ? ' disabled' : '';
+        return '<li class="slot' + (empty ? ' empty' : '') + '">' +
+          '<span class="no">Save #' + (i + 1) + '</span>' +
+          '<span class="info">' +
+            '<span class="nm">' + (empty ? '空 Empty' : escapeHtml(e.name)) + '</span>' +
+            (empty ? '' : '<span class="sub">' + escapeHtml(e.sum) + '　存於 ' + stamp(e.t) + '</span>') +
+          '</span>' +
+          '<span class="acts">' +
+            '<button type="button" onclick="HRV.slot.get(\'' + p + '\',' + i + ')"' + dis + '>讀取</button>' +
+            '<button type="button" onclick="HRV.slot.put(\'' + p + '\',' + i + ')">存入</button>' +
+            '<button type="button" onclick="HRV.slot.del(\'' + p + '\',' + i + ')"' + dis + '>清除</button>' +
+          '</span></li>';
+      }).join('');
+    }
+  };
+
+  // 「最近五筆」是自動記錄：面板上任何互動停下 1.2 秒後才記一筆，避免邊打字邊塞滿
+  function wireHistory(t){
+    var panel = document.getElementById('p-' + t.key);
+    if (!panel) return;
+    var timer = null;
+    var kick = function(){
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function(){ hist.record(t.key); }, hist.idleMs);
+    };
+    panel.addEventListener('input', kick);
+    panel.addEventListener('change', kick);
+    panel.addEventListener('click', function(e){
+      var wrap = document.getElementById(t.key + '-histWrap');
+      if (wrap && e.target && wrap.contains(e.target)) return;   // 操作記錄本身不算新查詢
+      kick();
+    });
+    hist.render(t.key);
+  }
+
+  // 四支工具的 self-test 一次跑完。全過完全不顯示，任一條失敗才跳警示列。
+  function runAllTests(){
+    var total = 0, failed = [];
+    TOOLS.forEach(function(t){
+      if (!t.ns) return;
+      var rows = t.ns.runTests();
+      total += rows.length;
+      rows.forEach(function(r){
+        if (!r.pass) failed.push({ tool: t.label, row: r });
+      });
+    });
+    var box = document.getElementById('hrvTestFail');
+    var sum = document.getElementById('testSummary');
+    if (!failed.length){
+      box.hidden = true;
+      if (sum) sum.textContent = total + '/' + total + ' 通過';
+      return { total: total, failed: 0 };
+    }
+    if (sum) sum.textContent = (total - failed.length) + '/' + total + ' 通過，' + failed.length + ' 項失敗';
+    box.hidden = false;
+    box.innerHTML = '<b>換算自我檢查失敗：' + failed.length + '/' + total +
+      ' 項不符預期，結果可能不可信。</b><ul>' +
+      failed.map(function(f){
+        return '<li>' + escapeHtml(f.tool) + '：' + escapeHtml(f.row.name) +
+               ' — want ' + escapeHtml(f.row.want) + ', got ' + escapeHtml(f.row.got) + '</li>';
+      }).join('') + '</ul>';
+    return { total: total, failed: failed.length };
+  }
+
+  function init(){
+    var fromHash = byHash(location.hash.slice(1));
+    if (fromHash){
+      select(fromHash.key, true);           // hash 指定的面板照開，即使入口是隱藏的
+    } else {
+      var saved = byKey(store.get('hrv.tool', TOOLS[0].key));
+      select(saved && !saved.hidden ? saved.key : TOOLS[0].key);
+    }
+    window.addEventListener('hashchange', function(){
+      var t = byHash(location.hash.slice(1));
+      if (t) select(t.key, true);
+    });
+    TOOLS.forEach(function(t){
+      if (t.hist) wireHistory(t);
+      if (t.slots) slot.render(t.key);
+    });
+    runAllTests();
+  }
+
+  return { select: select, init: init, runAllTests: runAllTests, tools: TOOLS,
+           hist: hist, slot: slot };
+})();
+
+HRV.init();
+
+// 離線狀態只是給使用者一個看得見的確認，抓不到就安靜降級
+(function(){
+  var el = document.getElementById('swState');
+  function set(t){ if (el) el.textContent = t; }
+
+  if (!('serviceWorker' in navigator)){ set('此瀏覽器不支援離線快取'); return; }
+  if (location.protocol === 'file:'){
+    set('以檔案方式開啟，離線快取未啟用（放到 host 後才會生效）');
+    return;
+  }
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').then(function(reg){
+      if (navigator.serviceWorker.controller){
+        set('已啟用，可離線使用');
+      } else {
+        set('已註冊，下載完成後即可離線使用');
+        var w = reg.installing || reg.waiting;
+        if (w) w.addEventListener('statechange', function(){
+          if (w.state === 'activated') set('已啟用，可離線使用');
+        });
+      }
+    }).catch(function(){ set('離線快取註冊失敗，工具仍可正常使用'); });
+  });
+})();
+</script>
+
+</body>
+</html>
