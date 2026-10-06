@@ -2,15 +2,17 @@
 <html lang="zh-Hant">
 <!--
   Tool    : hrv-toolkit.html
-  Version : 1.8.7
+  Version : 1.8.9
   Updated : 2026-10-06
-  Spec    : Shared Spec v1.14.7
+  Spec    : Shared Spec v1.14.9
 
   Hardware Reliability Validation Toolkit
   四支工具合併為單檔，左側選單切換。各工具的換算邏輯與版號維持獨立，
   每支包在自己的 IIFE 裡，CSS 各自 scope 在 #p-<前綴> 之下，互不影響。
 
   Changelog
+  1.8.9  記錄組的順序改成 IP Address Recorder、Firmware Recorder、Text Comparer、Personal Notes（首頁與選單一致）；選單底部「外觀 Theme」改成「主題 Theme」。
+  1.8.8  Text Comparer 改歸「記錄」組：首頁與選單都移到 Personal Notes 後面。
   1.8.7  首頁展開鈕文字改成「展開工具說明 / Show Description」「收合工具說明 / Hide Description」；窄螢幕時文字換到工具名稱下面一行。
   1.8.6  新增 Text Comparer v1.0.0（左右貼兩份文字逐行比對）；String Converter 與 Torque Converter 補上「說明」區；所有工具的說明區標題與第一點的間距統一。
   1.8.5  選單裡 Personal Notes 移到 Firmware Recorder 後面（與首頁順序一致）；首頁展開鈕文字改成「展開工具說明 Show／收合工具說明 Hide」；首頁底部說明的標題與第一點之間加大間距。
@@ -284,11 +286,11 @@ body{
   *{ transition: none !important; }
 }
 
-/* ===== 外觀切換：左側底部的太陽／月亮 ===== */
+/* ===== 主題切換：左側底部的太陽／月亮 ===== */
 :root[data-theme="light"]{ color-scheme: light; }
 :root[data-theme="dark"]{ color-scheme: dark; }
 
-/* 選單在桌機是一整欄高：外觀切換用 margin-top:auto 壓到最底 */
+/* 選單在桌機是一整欄高：主題切換用 margin-top:auto 壓到最底 */
 .side{
   display: flex;
   flex-direction: column;
@@ -333,7 +335,7 @@ body{
 .themebtn svg{ display: block; width: 20px; height: 20px; }
 
 @media (max-width: 767px){
-  /* 窄螢幕：選單收成標題列下方一排，外觀切換放在標題列右端，不多佔一行 */
+  /* 窄螢幕：選單收成標題列下方一排，主題切換放在標題列右端，不多佔一行 */
   .side{
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2375,16 +2377,16 @@ body{
 <div class="app">
   <aside class="side">
     <h1>HRV Toolkit</h1>
-    <span class="kit">v1.8.7</span>
+    <span class="kit">v1.8.9</span>
     <nav class="nav" aria-label="工具 Tools">
       <button type="button" class="navbtn home" id="nav-home" aria-pressed="false" onclick="HRV.select('home')">Home</button>
       <div class="navdiv" aria-hidden="true"></div>
       <button type="button" class="navbtn" id="nav-sc" aria-pressed="false" onclick="HRV.select('sc')">String Converter</button>
       <button type="button" class="navbtn" id="nav-tq" aria-pressed="false" onclick="HRV.select('tq')">Torque Converter</button>
       <button type="button" class="navbtn" id="nav-dsc" aria-pressed="false" onclick="HRV.select('dsc')">Data Size Converter</button>
-      <button type="button" class="navbtn" id="nav-tc" aria-pressed="false" onclick="HRV.select('tc')">Text Comparer</button>
       <button type="button" class="navbtn" id="nav-ipr" aria-pressed="false" onclick="HRV.select('ipr')">IP Address Recorder</button>
       <button type="button" class="navbtn" id="nav-fwr" aria-pressed="false" onclick="HRV.select('fwr')">Firmware Recorder</button>
+      <button type="button" class="navbtn" id="nav-tc" aria-pressed="false" onclick="HRV.select('tc')">Text Comparer</button>
       <button type="button" class="navbtn" id="nav-ln" aria-pressed="false" onclick="HRV.select('ln')">Personal Notes</button>
       <button type="button" class="navbtn" id="nav-nop" aria-pressed="false" onclick="HRV.select('nop')">Non-Op Test Time Calculator</button>
       <button type="button" class="navbtn" id="nav-mpc" aria-pressed="false" onclick="HRV.select('mpc')">Milestone Progress Calculator</button>
@@ -2393,8 +2395,8 @@ body{
     <div class="navsep" hidden></div>
     <button type="button" class="navbtn" id="nav-about" aria-pressed="false" hidden
       onclick="HRV.select('about')">關於與離線 About</button>
-    <div class="theme" role="group" aria-label="外觀 Theme">
-      <span class="cap">外觀 Theme</span>
+    <div class="theme" role="group" aria-label="主題 Theme">
+      <span class="cap">主題 Theme</span>
       <div class="themeswitch">
         <button type="button" class="themebtn" id="theme-light" aria-pressed="false"
           aria-label="淺色 Light" title="淺色 Light" onclick="HRV.theme.set('light')">
@@ -2419,7 +2421,7 @@ body{
 <div class="panel" id="p-home" hidden>
   <div class="phead">
     <span class="ptitle">Home</span>
-    <span class="ver" id="home-verTag">v1.8.7</span>
+    <span class="ver" id="home-verTag">v1.8.9</span>
   </div>
 
   <section aria-labelledby="home-h-conv">
@@ -2472,22 +2474,6 @@ body{
           </ul>
         </div>
       </li>
-      <li>
-        <button type="button" class="tn" id="home-b-tc" aria-expanded="false" aria-controls="home-d-tc" onclick="HRV.toggleInfo('tc')">
-          <span class="nm">Text Comparer</span><span class="st">展開工具說明 / Show Description</span>
-        </button>
-        <div class="td" id="home-d-tc" hidden>
-          <p>把兩份文字左右並排，逐行比對，差異即時標出來。</p>
-          <ul>
-          <li>左右各貼一份文字，結果一列對一列，左右一起捲動；長的行會換行，不會讓兩邊錯位。</li>
-          <li>差異分三種：只在左邊（紅）、只在右邊（綠）、修改（黃）。修改的行會再把不同的字加粗；版本字串、IP、MAC 會整個當成一個字標出來。</li>
-          <li>選項：忽略大小寫、忽略空白差異（只影響比對，畫面仍顯示原文）；「只看差異」把相同的行摺起來，差異前後各留 3 行。</li>
-          <li>上一個、下一個差異：在差異區塊之間跳，並顯示目前是第幾處。</li>
-          <li>搜尋：左右兩邊同時搜尋，不分大小寫，顯示左右各有幾筆，可以逐筆往下或往上跳（Enter 與 Shift 加 Enter）。</li>
-          <li>「複製差異」複製成 unified diff 格式，貼進 Jira 或 Slack 最清楚；也可以左右互換。每邊最多 50000 行；貼上的內容不存檔。</li>
-          </ul>
-        </div>
-      </li>
     </ul>
   </section>
 
@@ -2522,6 +2508,22 @@ body{
           <li>按「產出」會把有填的欄位整理成「名稱: 值」，一行一個，沒填的不出現，可以直接複製；欄位一有變動，已產出的文字就會清除。</li>
           <li>備註可以寫測試項目與問題釐清；每個欄位都有複製鈕。</li>
           <li>五個存檔格，專案欄就是存檔名稱，存檔時間含年份。</li>
+          </ul>
+        </div>
+      </li>
+      <li>
+        <button type="button" class="tn" id="home-b-tc" aria-expanded="false" aria-controls="home-d-tc" onclick="HRV.toggleInfo('tc')">
+          <span class="nm">Text Comparer</span><span class="st">展開工具說明 / Show Description</span>
+        </button>
+        <div class="td" id="home-d-tc" hidden>
+          <p>把兩份文字左右並排，逐行比對，差異即時標出來。</p>
+          <ul>
+          <li>左右各貼一份文字，結果一列對一列，左右一起捲動；長的行會換行，不會讓兩邊錯位。</li>
+          <li>差異分三種：只在左邊（紅）、只在右邊（綠）、修改（黃）。修改的行會再把不同的字加粗；版本字串、IP、MAC 會整個當成一個字標出來。</li>
+          <li>選項：忽略大小寫、忽略空白差異（只影響比對，畫面仍顯示原文）；「只看差異」把相同的行摺起來，差異前後各留 3 行。</li>
+          <li>上一個、下一個差異：在差異區塊之間跳，並顯示目前是第幾處。</li>
+          <li>搜尋：左右兩邊同時搜尋，不分大小寫，顯示左右各有幾筆，可以逐筆往下或往上跳（Enter 與 Shift 加 Enter）。</li>
+          <li>「複製差異」複製成 unified diff 格式，貼進 Jira 或 Slack 最清楚；也可以左右互換。每邊最多 50000 行；貼上的內容不存檔。</li>
           </ul>
         </div>
       </li>
@@ -3548,7 +3550,7 @@ body{
     <div class="panel" id="p-about" hidden>
       <div class="phead">
         <span class="ptitle">關於與離線 About</span>
-        <span class="ver">v1.8.7</span>
+        <span class="ver">v1.8.9</span>
       </div>
 
       <section aria-labelledby="h-ver">
@@ -3560,13 +3562,13 @@ body{
               <tr><td data-label="工具">String Converter</td><td class="t" data-label="版號">v2.0.2</td></tr>
               <tr><td data-label="工具">Torque Converter</td><td class="t" data-label="版號">v2.0.2</td></tr>
               <tr><td data-label="工具">Data Size Converter</td><td class="t" data-label="版號">v1.0.0</td></tr>
-              <tr><td data-label="工具">Text Comparer</td><td class="t" data-label="版號">v1.0.0</td></tr>
               <tr><td data-label="工具">IP Address Recorder</td><td class="t" data-label="版號">v2.1.4</td></tr>
               <tr><td data-label="工具">Firmware Recorder</td><td class="t" data-label="版號">v1.1.2</td></tr>
               <tr><td data-label="工具">Non-Op Test Time Calculator</td><td class="t" data-label="版號">v3.1.1</td></tr>
               <tr><td data-label="工具">Milestone Progress Calculator</td><td class="t" data-label="版號">v1.1.1</td></tr>
+              <tr><td data-label="工具">Text Comparer</td><td class="t" data-label="版號">v1.0.0</td></tr>
               <tr><td data-label="工具">Personal Notes</td><td class="t" data-label="版號">v1.1.2</td></tr>
-              <tr><td data-label="工具">hrv-toolkit.html</td><td class="t" data-label="版號">v1.8.7</td></tr>
+              <tr><td data-label="工具">hrv-toolkit.html</td><td class="t" data-label="版號">v1.8.9</td></tr>
             </tbody>
           </table>
         </div>
@@ -9055,9 +9057,9 @@ var HRV = (function(){
   { key: 'sc', ns: SC, label: 'String Converter', hash: 'string-converter', hist: true },
   { key: 'tq', ns: TQ, label: 'Torque Converter', hash: 'torque-converter', hist: true },
   { key: 'dsc', ns: DSC, label: 'Data Size Converter', hash: 'data-size', hist: true },
-  { key: 'tc', ns: TC, label: 'Text Comparer', hash: 'text-comparer' },
   { key: 'ipr', ns: IPR, label: 'IP Address Recorder', hash: 'ip-recorder', slots: true, fullStamp: true, nameField: true },
   { key: 'fwr', ns: FWR, label: 'Firmware Recorder', hash: 'firmware-recorder', slots: true, fullStamp: true, nameField: true },
+  { key: 'tc', ns: TC, label: 'Text Comparer', hash: 'text-comparer' },
   { key: 'ln', ns: LN, label: 'Personal Notes', hash: 'local-notes', slots: true, fullStamp: true, nameField: true },
   { key: 'nop', ns: NOP, label: 'Non-Op Test Time Calculator', hash: 'non-op-test-time', slots: true, cal: true },
   { key: 'mpc', ns: MPC, label: 'Milestone Progress Calculator', hash: 'milestone-progress', slots: true, cal: true },
@@ -9336,7 +9338,7 @@ var HRV = (function(){
     return { total: total, failed: failed.length };
   }
 
-  // ===== 外觀（淺色 / 深色）=====
+  // ===== 主題（淺色 / 深色）=====
   // 沒選過就跟著系統；選過就記在 hrv.theme。預覽環境沒有 localStorage 時只維持到關掉為止。
   var theme = {
     KEY: 'hrv.theme',

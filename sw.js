@@ -1,8 +1,8 @@
 /*
   sw.js — HW Reliability Toolkit
-  Version : 2.8.7
+  Version : 2.8.9
   Updated : 2026-10-06
-  Spec    : Shared Spec v1.14.7
+  Spec    : Shared Spec v1.14.9
 
   Cache-first。所有工具都是單檔靜態頁，安裝時一次全部預先快取，之後完全離線可用。
 
@@ -10,6 +10,8 @@
   Cache-first 代表舊版會一直被端出來，換掉 CACHE 名稱才會觸發重新下載並清掉舊快取。
 
   Changelog
+  2.8.9  對應 hrv-toolkit.html v1.8.9（記錄組順序、主題標籤）。
+  2.8.8  對應 hrv-toolkit.html v1.8.8（Text Comparer 改歸記錄組）。
   2.8.7  對應 hrv-toolkit.html v1.8.7（首頁展開鈕文字）。
   2.8.6  對應 hrv-toolkit.html v1.8.6（Text Comparer、兩個工具補說明區、說明區間距統一）。
   2.8.5  對應 hrv-toolkit.html v1.8.5（選單順序、首頁展開鈕文字與間距）。
@@ -32,7 +34,7 @@
   1.0.0  Initial release
 */
 
-var CACHE = 'hw-reliability-toolkit-v2.8.7';
+var CACHE = 'hw-reliability-toolkit-v2.8.9';
 
 var ASSETS = [
   './',
