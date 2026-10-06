@@ -2,15 +2,17 @@
 <html lang="zh-Hant">
 <!--
   Tool    : hrv-toolkit.html
-  Version : 1.8.9
+  Version : 1.8.11
   Updated : 2026-10-06
-  Spec    : Shared Spec v1.14.9
+  Spec    : Shared Spec v1.14.11
 
   Hardware Reliability Validation Toolkit
   四支工具合併為單檔，左側選單切換。各工具的換算邏輯與版號維持獨立，
   每支包在自己的 IIFE 裡，CSS 各自 scope 在 #p-<前綴> 之下，互不影響。
 
   Changelog
+  1.8.11 IP Address Recorder v2.1.5：種類裡的兩個選項合併成 Rack Manager。Firmware Recorder v1.1.4：移除兩個特定元件的欄位（已存的值自動轉成自訂項目），新增可以自己加列的「自訂項目」。
+  1.8.10 Firmware Recorder v1.1.3：貼上偵測改用通用規則，程式、說明與測試裡不再有任何廠商或專案的欄位名稱；新增防漏測試。
   1.8.9  記錄組的順序改成 IP Address Recorder、Firmware Recorder、Text Comparer、Personal Notes（首頁與選單一致）；選單底部「外觀 Theme」改成「主題 Theme」。
   1.8.8  Text Comparer 改歸「記錄」組：首頁與選單都移到 Personal Notes 後面。
   1.8.7  首頁展開鈕文字改成「展開工具說明 / Show Description」「收合工具說明 / Hide Description」；窄螢幕時文字換到工具名稱下面一行。
@@ -1673,6 +1675,20 @@ body{
 }
 #p-fwr .row label{ font: 500 0.875rem/1.3 var(--font-ui); color: var(--ink-dim); }
 
+/* 自訂項目：名稱在左、版本在中、複製與移除在右（窄螢幕名稱獨佔一行） */
+#p-fwr .custom{ max-width: 40rem; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--rule); }
+#p-fwr .chead{ display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+#p-fwr .chead h3{ margin: 0; font: 600 0.9375rem/1.4 var(--font-ui); }
+#p-fwr .chint{ margin: 4px 0 12px; font-size: 0.8125rem; color: var(--ink-dim); }
+#p-fwr .crow{
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+#p-fwr .crow .cx{ min-width: 4rem; font: 400 0.8125rem/1 var(--font-ui); }
+
 #p-fwr ul.note{ margin: 0; padding-left: 1.25em; font-size: 0.8125rem; color: var(--ink-dim); }
 #p-fwr ul.note li{ margin-bottom: 4px; }
 #p-fwr ul.note b{ color: var(--ink); font-weight: 600; }
@@ -1683,6 +1699,8 @@ body{
   #p-fwr .row input{ grid-column: 1 / -1; grid-row: 2; }
   #p-fwr .row label{ grid-row: 1; }
   #p-fwr .row .cp{ grid-row: 1; grid-column: 2; min-height: 36px; }
+  #p-fwr .crow{ grid-template-columns: minmax(0, 1fr) auto auto; margin-bottom: 12px; }
+  #p-fwr .crow .cn{ grid-column: 1 / -1; }
   #p-fwr .line.ip{ grid-template-columns: minmax(0, 1fr) auto; }
   #p-fwr .line.ip select{ grid-column: 1 / -1; grid-row: 2; }
 }
@@ -2377,7 +2395,7 @@ body{
 <div class="app">
   <aside class="side">
     <h1>HRV Toolkit</h1>
-    <span class="kit">v1.8.9</span>
+    <span class="kit">v1.8.11</span>
     <nav class="nav" aria-label="工具 Tools">
       <button type="button" class="navbtn home" id="nav-home" aria-pressed="false" onclick="HRV.select('home')">Home</button>
       <div class="navdiv" aria-hidden="true"></div>
@@ -2421,7 +2439,7 @@ body{
 <div class="panel" id="p-home" hidden>
   <div class="phead">
     <span class="ptitle">Home</span>
-    <span class="ver" id="home-verTag">v1.8.9</span>
+    <span class="ver" id="home-verTag">v1.8.11</span>
   </div>
 
   <section aria-labelledby="home-h-conv">
@@ -2487,7 +2505,7 @@ body{
         <div class="td" id="home-d-ipr" hidden>
           <p>記地端機器的網路資訊：IP、MAC、電腦名稱與地點。</p>
           <ul>
-          <li>每一組最多四個 IP，每個 IP 配一個自己的 MAC，用框格框在一起；IP 右邊的下拉選單標示種類：Host、BMC、FPGA、Controller、RM、RSCM、MGMT Switch、TOR Switch。</li>
+          <li>每一組最多四個 IP，每個 IP 配一個自己的 MAC，用框格框在一起；IP 右邊的下拉選單標示種類：Host、BMC、FPGA、Controller、Rack Manager、MGMT Switch、TOR Switch。</li>
           <li>IP 1 必填，其餘可以留空。另外有組名、電腦名稱、地點三個欄位。</li>
           <li>只檢查 IPv4（四段，各 0 到 255）與 MAC（12 個 hex 字元），格式有誤會提示怎麼修，但不擋存入；MAC 有填、同一組的 IP 卻空白，也會提醒。</li>
           <li>每個欄位都有複製鈕，複製的是你輸入的原文。</li>
@@ -2503,8 +2521,8 @@ body{
           <p>記錄各專案階段的 Firmware 版本，整理成可以傳給 RD 的文字。</p>
           <ul>
           <li>先填專案名稱與階段（POC、EV、DV、PV、MP、DoE）。</li>
-          <li>九個 Firmware 欄位：BIOS、BMC、SCM CPLD、HPM CPLD、Manticore、TPM、SoC OS、SoC Firmware、FPGA Cerberus。</li>
-          <li>自動偵測：把從 RM 撈出的原始輸出貼進偵測區，認得的欄位（BIOS、BMC、SCM CPLD、HPM CPLD）會自動填入，並說明填了哪些、沒偵測到哪些；BMC、SCM CPLD、HPM CPLD 抓到兩筆相同的值只留一筆。貼上的原文不會被存起來。</li>
+          <li>七個固定欄位：BIOS、BMC、SCM CPLD、HPM CPLD、TPM、SoC OS、SoC Firmware。不在裡面的東西，用下面的「自訂項目」自己新增，每列填項目名稱與版本，最多 20 列，也會進產出與存檔。</li>
+          <li>自動偵測：把版本輸出整段貼進偵測區，認得的欄位（BIOS、BMC、SCM CPLD、HPM CPLD）會自動填入，並說明填了哪些、沒偵測到哪些；BMC、SCM CPLD、HPM CPLD 抓到兩筆相同的值只留一筆。貼上的原文不會被存起來。</li>
           <li>按「產出」會把有填的欄位整理成「名稱: 值」，一行一個，沒填的不出現，可以直接複製；欄位一有變動，已產出的文字就會清除。</li>
           <li>備註可以寫測試項目與問題釐清；每個欄位都有複製鈕。</li>
           <li>五個存檔格，專案欄就是存檔名稱，存檔時間含年份。</li>
@@ -3275,13 +3293,23 @@ body{
     <div class="detect">
       <label for="fwr-paste">自動偵測 Paste &amp; Detect</label>
       <textarea id="fwr-paste" rows="4" spellcheck="false" autocomplete="off" autocapitalize="off"
-        placeholder="把從 RM 撈出的原始輸出貼在這裡，認得的版本欄位會自動填進下面。"
+        placeholder="把版本輸出整段貼在這裡，認得的版本欄位會自動填進下面。"
         oninput="FWR.onPaste()"></textarea>
       <div class="msg" id="fwr-detectMsg" aria-live="polite"></div>
       <div class="dact"><button type="button" onclick="FWR.onClearPaste()">清空貼上區 Clear Paste</button></div>
     </div>
 
     <div class="rows" id="fwr-rows"></div>
+
+    <div class="custom">
+      <div class="chead">
+        <h3 id="fwr-h-custom">自訂項目 Custom Items</h3>
+        <button type="button" id="fwr-addItem" onclick="FWR.onAddItem()">新增項目 Add Item</button>
+      </div>
+      <p class="chint">要記的 Firmware 不在上面的欄位裡時，自己新增一列：左邊填項目名稱，右邊填版本。</p>
+      <div class="crows" id="fwr-customRows" role="group" aria-labelledby="fwr-h-custom"></div>
+      <div class="msg" id="fwr-customMsg" aria-live="polite"></div>
+    </div>
   </section>
 
   <section aria-labelledby="fwr-h-out">
@@ -3328,12 +3356,13 @@ body{
   <section aria-labelledby="fwr-h-about">
     <h2 id="fwr-h-about">說明 Notes</h2>
     <ul class="note">
-      <li><b>自動偵測</b>：把從 RM 撈出的原始輸出整段貼進偵測區，會逐行找「欄位名稱: 值」，認得的就填進下面的 Firmware 欄位；沒認出來的欄位原樣不動，手動填。</li>
-      <li>目前認得的對應：BIOS ← BiosVersion；BMC ← BMCVersion（BMC2Version 不同時用 " / " 接在後面）；SCM CPLD ← DCSCMCpldVersion；HPM CPLD ← CpldVersion。其他欄位目前沒有對應，先手動填。</li>
+      <li><b>自動偵測</b>：把版本輸出整段貼進偵測區，會逐行找「欄位名稱: 值」，認得的就填進下面的 Firmware 欄位；沒認出來的欄位原樣不動，手動填。</li>
+      <li><b>認得的規則</b>：欄位名稱（忽略大小寫、空白與符號）要以 Version 結尾，再看名稱含什麼：含 BIOS 填 BIOS；含 BMC 填 BMC（有好幾組 BMC 且版本不同時，依名稱裡的數字由小到大用 " / " 接起來）；含 CPLD 的，名稱含 SCM 填 SCM CPLD，其餘填 HPM CPLD。其他欄位沒有對應，先手動填。</li>
+      <li><b>自訂項目</b>：要記的 Firmware 不在固定欄位裡時，按「新增項目」自己加一列，左邊填項目名稱、右邊填版本，最多 20 列。名稱與版本<b>都填</b>才會出現在產出裡，只填一半的會提示。移除有填東西的列要按兩次。自訂項目會跟著自動記住與存檔格一起存；貼上自動偵測不會動它們。</li>
       <li>貼上的值若和欄位裡原有的不同，會覆蓋，並在訊息列列出原值。貼上區之後再被編輯時，已經填過的值不會把你手動改過的欄位又蓋回去。</li>
       <li><b>貼上區的原文不會被存起來</b>（裡面常有序號、UUID、MAC），只有填進欄位的版本字串會跟著存檔。要清掉原文按「清空貼上區」。</li>
       <li>BMC、SCM CPLD、HPM CPLD 抓到兩筆相同的值（例如 <code>03.06.00,03.06.00</code>）時只留一筆；兩筆不一樣就原樣保留並提示。</li>
-      <li><b>產出</b>：按「產出」會把有填值的 Firmware 欄位整理成「名稱: 值」，一行一個，沒填的不出現，可直接複製傳給 RD。產出內容不含專案、階段與備註。欄位一有變動，已產出的文字會自動清除，避免複製到過時的內容。</li>
+      <li><b>產出</b>：按「產出」會把有填值的 Firmware 欄位（含自訂項目）整理成「名稱: 值」，一行一個，沒填的不出現，可直接複製傳給 RD。產出內容不含專案、階段與備註。欄位一有變動，已產出的文字會自動清除，避免複製到過時的內容。</li>
       <li>每個欄位右邊的「複製」只複製該欄的文字，不含標籤。</li>
       <li>所有內容只存在這台裝置的瀏覽器裡，不上傳。清除瀏覽器資料就會一起消失，換裝置也不會同步。</li>
     </ul>
@@ -3550,7 +3579,7 @@ body{
     <div class="panel" id="p-about" hidden>
       <div class="phead">
         <span class="ptitle">關於與離線 About</span>
-        <span class="ver">v1.8.9</span>
+        <span class="ver">v1.8.11</span>
       </div>
 
       <section aria-labelledby="h-ver">
@@ -3562,13 +3591,13 @@ body{
               <tr><td data-label="工具">String Converter</td><td class="t" data-label="版號">v2.0.2</td></tr>
               <tr><td data-label="工具">Torque Converter</td><td class="t" data-label="版號">v2.0.2</td></tr>
               <tr><td data-label="工具">Data Size Converter</td><td class="t" data-label="版號">v1.0.0</td></tr>
-              <tr><td data-label="工具">IP Address Recorder</td><td class="t" data-label="版號">v2.1.4</td></tr>
-              <tr><td data-label="工具">Firmware Recorder</td><td class="t" data-label="版號">v1.1.2</td></tr>
+              <tr><td data-label="工具">IP Address Recorder</td><td class="t" data-label="版號">v2.1.5</td></tr>
+              <tr><td data-label="工具">Firmware Recorder</td><td class="t" data-label="版號">v1.1.4</td></tr>
               <tr><td data-label="工具">Non-Op Test Time Calculator</td><td class="t" data-label="版號">v3.1.1</td></tr>
               <tr><td data-label="工具">Milestone Progress Calculator</td><td class="t" data-label="版號">v1.1.1</td></tr>
               <tr><td data-label="工具">Text Comparer</td><td class="t" data-label="版號">v1.0.0</td></tr>
               <tr><td data-label="工具">Personal Notes</td><td class="t" data-label="版號">v1.1.2</td></tr>
-              <tr><td data-label="工具">hrv-toolkit.html</td><td class="t" data-label="版號">v1.8.9</td></tr>
+              <tr><td data-label="工具">hrv-toolkit.html</td><td class="t" data-label="版號">v1.8.11</td></tr>
             </tbody>
           </table>
         </div>
@@ -6490,8 +6519,7 @@ var TYPES = [
   { id: 'bmc',    label: 'BMC' },
   { id: 'fpga',   label: 'FPGA' },
   { id: 'ctrl',   label: 'Controller' },
-  { id: 'rm',     label: 'RM' },
-  { id: 'rscm',   label: 'RSCM' },
+  { id: 'rm',     label: 'Rack Manager' },
   { id: 'mgmtsw', label: 'MGMT Switch' },
   { id: 'torsw',  label: 'TOR Switch' }
 ];
@@ -6671,11 +6699,14 @@ var TESTS = [
   { name: '整理：舊記錄的共用 MAC 搬到 IP 1', fn: function(){ var r = normalizeRecord({ ips: [{ ip: '192.0.2.10', type: 'host' }], mac: '00:00:5E:00:53:01' }); return r.ips[0].mac + '/' + r.ips[1].mac; }, want: '00:00:5E:00:53:01/' },
   { name: '整理：新記錄不被舊欄位蓋掉',   fn: function(){ var r = normalizeRecord({ ips: [{ ip: 'a', mac: 'NEW' }], mac: 'OLD' }); return r.ips[0].mac; }, want: 'NEW' },
   { name: '整理：未知種類退成未標註',    fn: function(){ return normalizeRecord({ ips: [{ ip: '192.0.2.10', type: 'nope' }] }).ips[0].type; }, want: '' },
-  { name: '整理：保留合法種類',         fn: function(){ return normalizeRecord({ ips: [{ ip: '192.0.2.10', type: 'rscm' }] }).ips[0].type; }, want: 'rscm' },
+  { name: '整理：保留合法種類',         fn: function(){ return normalizeRecord({ ips: [{ ip: '192.0.2.10', type: 'rm' }] }).ips[0].type; }, want: 'rm' },
+  { name: '整理：不認得的種類退成未標註，IP 保留', fn: function(){ var r = normalizeRecord({ ips: [{ ip: '192.0.2.10', type: 'retired' }] }).ips[0]; return r.type + '|' + r.ip; }, want: '|192.0.2.10' },
+  { name: '種類：Rack Manager 標籤',    fn: function(){ return typeLabel('rm'); }, want: 'Rack Manager' },
+  { name: '種類：選單裡沒有重複的標籤',  fn: function(){ var l = TYPES.map(function(t){ return t.label; }); return l.filter(function(x, i){ return l.indexOf(x) === i; }).length === l.length; }, want: true },
   { name: '整理：缺的 IP 補到四個',     fn: function(){ return normalizeRecord({ ips: [{ ip: '192.0.2.10', type: '' }] }).ips.length; }, want: 4 },
   { name: '整理：超長文字截到上限',      fn: function(){ return normalizeRecord({ loc: new Array(200).join('x') }).loc.length; }, want: 80 },
   { name: '整理：換行變空白',           fn: function(){ return normalizeRecord({ loc: 'Lab\nA' }).loc; }, want: 'Lab A' },
-  { name: '種類：八種加未標註',         fn: function(){ return TYPES.length; }, want: 9 },
+  { name: '種類：七種加未標註',         fn: function(){ return TYPES.length; }, want: 8 },
   { name: '種類：Controller 標籤',     fn: function(){ return typeLabel('ctrl'); }, want: 'Controller' },
   { name: '輸入判斷：只選種類也算有輸入', fn: function(){ return hasAnyInput(R('', 'bmc')); }, want: true },
   { name: '輸入判斷：只填 MAC 也算有輸入', fn: function(){ return hasAnyInput(R('', '', { macs: ['', '00:00:5E:00:53:01'] })); }, want: true },
@@ -6696,7 +6727,7 @@ function runTests(){
 // ===== END CORE =====
 
 // ===== DOM =====
-var VERSION = '2.1.4';
+var VERSION = '2.1.5';
 var KEY = 'ipr.v1';   // 表單上目前的內容，重新載入後還在；只存在這台裝置
 
 var store = {
@@ -6877,26 +6908,43 @@ var FIELDS = [
   { id: 'bmc',       label: 'BMC' },
   { id: 'scmCpld',   label: 'SCM CPLD' },
   { id: 'hpmCpld',   label: 'HPM CPLD' },
-  { id: 'manticore', label: 'Manticore' },
   { id: 'tpm',       label: 'TPM' },
   { id: 'socOs',     label: 'SoC OS' },
-  { id: 'socFw',     label: 'SoC Firmware' },
-  { id: 'fpga',      label: 'FPGA Cerberus' }
+  { id: 'socFw',     label: 'SoC Firmware' }
 ];
 
-// 貼上偵測的對應規則：只有「欄位標籤」，沒有任何值或指令。
-// 比對方式是整個標籤（去掉空白、底線、符號、轉小寫）完全相等，不做部分比對，
-// 所以 DCSCMCpldVersion 不會被誤判成 CpldVersion。
-// 輸出裡沒有的欄位（Manticore、TPM、SoC、FPGA）目前沒有已確認的標籤，先留空讓使用者手動填。
-var RULES = {
-  bios:    ['biosversion', 'biosfirmwareversion', 'biosfwversion'],
-  bmc:     ['bmcversion', 'bmcfirmwareversion', 'bmcfwversion', 'bmc1version'],
-  scmCpld: ['dcscmcpldversion', 'scmcpldversion', 'scmcpld'],
-  hpmCpld: ['cpldversion', 'hpmcpldversion', 'hpmcpld']
-};
-var BMC2_KEYS = ['bmc2version', 'bmc2firmwareversion', 'bmc2fwversion'];
+// 自訂項目：使用者自己新增的「項目名稱 / 版本」，每一列兩個欄位，最多這麼多列
+var MAX_CUSTOM = 20;
+var MAX_NAME = 40;
 
-// RM 會把兩顆（兩組）的版本用逗號並列：03.06.00,03.06.00。這幾個欄位兩筆相同就只留一筆。
+// 貼上偵測的規則：**不內建任何廠商或專案的欄位名稱**（欄位名稱本身就會透露是哪個平台），
+// 只用和畫面上欄位標籤相同的通用詞。名稱先去掉空白、底線、符號並轉小寫，再判斷：
+//   - 要以 version 結尾（避免把 BiosVersionDate 之類誤判）
+//   - 含 bios → BIOS；含 bmc → BMC
+//   - 含 cpld：含 scm → SCM CPLD；含 hpm 或兩者都沒有 → HPM CPLD
+//   - scm 與 hpm 的 cpld 名稱不帶 version 也算（例如 scmcpld）
+// 輸出裡沒有規則的欄位（TPM、SoC）留空讓使用者手動填；其他東西用「自訂項目」自己加。
+function classify(nk){
+  var ver = /version$/.test(nk);
+  if (nk.indexOf('cpld') !== -1){
+    var named = ver || /cpld$/.test(nk);
+    if (nk.indexOf('scm') !== -1) return named ? 'scmCpld' : '';
+    if (nk.indexOf('hpm') !== -1) return named ? 'hpmCpld' : '';
+    return ver ? 'hpmCpld' : '';
+  }
+  if (!ver) return '';
+  if (nk.indexOf('bios') !== -1) return 'bios';
+  if (nk.indexOf('bmc') !== -1) return 'bmc';
+  return '';
+}
+
+// 同一個欄位有好幾個名稱時（例如好幾組 BMC），依名稱裡的數字由小到大接起來，沒有數字算 1
+function rankOf(nk){
+  var m = /(\d+)/.exec(nk);
+  return m ? parseInt(m[1], 10) : 1;
+}
+
+// 有些工具會把兩顆（兩組）的版本用逗號並列：03.06.00,03.06.00。這幾個欄位兩筆相同就只留一筆。
 // 兩筆不一樣就原樣保留（不能默默丟掉資訊），並提示使用者確認。
 var DEDUPE = ['bmc', 'scmCpld', 'hpmCpld'];
 
@@ -6962,56 +7010,66 @@ function mergeBmc(v1, v2){
 // 解析貼上的原始輸出。
 //   found  : { 欄位id: 值 }
 //   order  : 依畫面順序列出偵測到的欄位 id
-//   notes  : 需要讓使用者知道的事（重複出現、兩個 BMC 不同…）
+//   notes  : 需要讓使用者知道的事（重複出現、好幾組 BMC 不同…）
 // 空字串不算錯（found 為空）；有內容卻一個欄位都認不得才回 ok:false。
 function parseDump(text){
   var raw = stripAnsi(text == null ? '' : text);
   if (raw.trim() === '') return { ok: true, found: {}, order: [], notes: [] };
 
-  var byKey = {};        // normKey -> [值, 值, ...]
+  // 依欄位分組：每個欄位 → { 名稱: [值, 值, ...] }（名稱依第一次出現的順序）
+  var groups = {};
   raw.split(/\r\n?|\n/).forEach(function(line){
     var kv = splitLine(line);
     if (!kv || isBlankValue(kv.value)) return;
     var k = normKey(kv.key);
-    if (!byKey[k]) byKey[k] = [];
-    byKey[k].push(kv.value);
+    var id = classify(k);
+    if (!id) return;
+    if (!groups[id]) groups[id] = { keys: [], vals: {} };
+    if (!groups[id].vals[k]){ groups[id].vals[k] = []; groups[id].keys.push(k); }
+    groups[id].vals[k].push(kv.value);
   });
 
   var found = {}, notes = [];
   FIELDS.forEach(function(f){
-    var keys = RULES[f.id];
-    if (!keys) return;
-    for (var i = 0; i < keys.length; i++){
-      var vals = byKey[keys[i]];
-      if (!vals) continue;
-      var v = cleanLine(vals[0]);
-      if (DEDUPE.indexOf(f.id) !== -1){
-        if (isMixedList(v)) notes.push(f.label + ' 有兩筆不同的值（' + v + '），保留原樣，請確認');
-        v = dedupeList(v);
-      }
-      var distinct = vals.filter(function(x, j){ return vals.indexOf(x) === j; });
-      if (distinct.length > 1) notes.push(f.label + ' 出現 ' + distinct.length + ' 個不同的值，只取第一個：' + cleanLine(vals[0]));
-      found[f.id] = v;
-      break;
+    var g = groups[f.id];
+    if (!g) return;
+    var keys = g.keys.slice();
+    if (f.id === 'bmc'){
+      keys.sort(function(a, b){ return rankOf(a) - rankOf(b); });   // 穩定排序，同數字維持出現順序
+      if (rankOf(keys[0]) > 1) return;   // 只有第二組以後、沒有第一組：無法確定是哪一顆，不填
     }
-  });
+    var all = [];
+    keys.forEach(function(k){ g.vals[k].forEach(function(x){ all.push(x); }); });
+    var distinct = all.filter(function(x, j){ return all.indexOf(x) === j; });
 
-  // BMC2 另外處理
-  if (found.bmc){
-    for (var b = 0; b < BMC2_KEYS.length; b++){
-      var v2 = byKey[BMC2_KEYS[b]];
-      if (v2){
-        var merged = mergeBmc(found.bmc, dedupeList(cleanLine(v2[0])));
-        if (merged !== found.bmc) notes.push('BMC 與 BMC2 版本不同，已用 " / " 接在一起');
-        found.bmc = cleanLine(merged);
-        break;
-      }
+    var first = g.vals[keys[0]];
+    var v = cleanLine(first[0]);
+    if (DEDUPE.indexOf(f.id) !== -1){
+      if (isMixedList(v)) notes.push(f.label + ' 有兩筆不同的值（' + v + '），保留原樣，請確認');
+      v = dedupeList(v);
     }
-  }
+    if (f.id === 'bmc'){
+      // 好幾組 BMC：相同就只留一個，不同用 " / " 接起來
+      var merged = v;
+      for (var m = 1; m < keys.length; m++){
+        merged = mergeBmc(merged, dedupeList(cleanLine(g.vals[keys[m]][0])));
+      }
+      if (merged !== v) notes.push('有多組 BMC 版本不同，已用 " / " 接在一起');
+      v = cleanLine(merged);
+      // 同一個名稱重複出現又不同，才算「重複」
+      keys.forEach(function(k){
+        var d = g.vals[k].filter(function(x, j){ return g.vals[k].indexOf(x) === j; });
+        if (d.length > 1) notes.push(f.label + ' 出現 ' + d.length + ' 個不同的值，只取第一個：' + cleanLine(g.vals[k][0]));
+      });
+    } else if (distinct.length > 1){
+      notes.push(f.label + ' 出現 ' + distinct.length + ' 個不同的值，只取第一個：' + cleanLine(all[0]));
+    }
+    found[f.id] = v;
+  });
 
   var order = FIELDS.filter(function(f){ return found[f.id] !== undefined; }).map(function(f){ return f.id; });
   if (!order.length){
-    return { ok: false, error: '貼上的內容裡找不到可辨識的版本欄位。目前認得的欄位名稱：BiosVersion、BMCVersion、DCSCMCpldVersion、CpldVersion。' };
+    return { ok: false, error: '貼上的內容裡找不到可辨識的版本欄位。會找「名稱: 值」的行，名稱要以 Version 結尾，並含 BIOS、BMC 或 CPLD（SCM CPLD 的名稱要含 SCM）。' };
   }
   return { ok: true, found: found, order: order, notes: notes };
 }
@@ -7019,7 +7077,12 @@ function parseDump(text){
 function emptyRecord(){
   var fw = {};
   FIELDS.forEach(function(f){ fw[f.id] = ''; });
-  return { stage: '', fw: fw, test: '', issue: '' };
+  return { stage: '', fw: fw, custom: [], test: '', issue: '' };
+}
+
+// 項目名稱：單行、去前後空白、截到上限
+function cleanName(s){
+  return String(s == null ? '' : s).replace(/[\r\n\t]+/g, ' ').trim().slice(0, MAX_NAME);
 }
 
 // 把任何來源（localStorage、存檔格）的物件整理成合法的記錄
@@ -7027,26 +7090,63 @@ function normalizeRecord(o){
   var rec = emptyRecord();
   if (!o || typeof o !== 'object') return rec;
   rec.stage = validStage(o.stage) ? o.stage : '';
+  var custom = [];
   if (o.fw && typeof o.fw === 'object'){
-    FIELDS.forEach(function(f){ rec.fw[f.id] = cleanLine(o.fw[f.id]); });
+    var known = {};
+    FIELDS.forEach(function(f){ known[f.id] = true; rec.fw[f.id] = cleanLine(o.fw[f.id]); });
+    // 舊版有、現在已經移除的固定欄位：值轉成自訂項目，已存的資料不會憑空消失。
+    // 名稱取自資料本身的欄位代號（程式裡不放任何元件名稱），使用者可以自己改名。
+    Object.keys(o.fw).forEach(function(k){
+      if (known[k] || !/^[A-Za-z0-9_]{1,30}$/.test(k)) return;
+      var v = cleanLine(o.fw[k]);
+      if (v !== '') custom.push({ name: k.charAt(0).toUpperCase() + k.slice(1), version: v });
+    });
   }
+  if (Array.isArray(o.custom)){
+    var mine = [];
+    o.custom.forEach(function(c){
+      if (!c || typeof c !== 'object') return;
+      var n = cleanName(c.name), v = cleanLine(c.version);
+      if (n !== '' || v !== '') mine.push({ name: n, version: v });
+    });
+    custom = mine.concat(custom);
+  }
+  rec.custom = custom.slice(0, MAX_CUSTOM);
   rec.test = cleanNote(o.test);
   rec.issue = cleanNote(o.issue);
   return rec;
 }
 
+// 有填的 Firmware：先是畫面上的固定欄位（依畫面順序），再是自訂項目（依列的順序）。
+// 自訂項目要「名稱與版本都有填」才算；只填一半的不產出、也不算進項數。
 function filledFw(rec){
-  return FIELDS.filter(function(f){ return String(rec.fw[f.id]).trim() !== ''; });
+  var out = [];
+  FIELDS.forEach(function(f){
+    var v = String(rec.fw[f.id]).trim();
+    if (v !== '') out.push({ label: f.label, value: v });
+  });
+  (rec.custom || []).forEach(function(c){
+    var n = String(c.name).trim(), v = String(c.version).trim();
+    if (n !== '' && v !== '') out.push({ label: n, value: v });
+  });
+  return out;
+}
+
+// 自訂項目裡只填了一半（有名稱沒版本、或有版本沒名稱）的列數
+function halfFilled(rec){
+  return (rec.custom || []).filter(function(c){
+    return (String(c.name).trim() !== '') !== (String(c.version).trim() !== '');
+  }).length;
 }
 
 function hasAnyInput(rec){
-  return rec.stage !== '' || filledFw(rec).length > 0 ||
+  return rec.stage !== '' || filledFw(rec).length > 0 || halfFilled(rec) > 0 ||
          String(rec.test).trim() !== '' || String(rec.issue).trim() !== '';
 }
 
-// 要傳給 RD 的文字：只輸出有填值的 Firmware 欄位，一行一個「名稱: 值」，沒填的不產出
+// 要傳給 RD 的文字：只輸出有填值的 Firmware，一行一個「名稱: 值」，沒填的不產出
 function formatOutput(rec){
-  return filledFw(rec).map(function(f){ return f.label + ': ' + String(rec.fw[f.id]).trim(); }).join('\n');
+  return filledFw(rec).map(function(f){ return f.label + ': ' + f.value; }).join('\n');
 }
 
 // 存檔格上的一行摘要。完全沒填就回空字串（外殼靠這個擋掉空的存入）。
@@ -7055,16 +7155,18 @@ function summaryOf(rec){
   var parts = [];
   if (rec.stage !== '') parts.push(rec.stage);
   var fw = filledFw(rec);
-  fw.slice(0, 2).forEach(function(f){ parts.push(f.label + ' ' + rec.fw[f.id]); });
+  fw.slice(0, 2).forEach(function(f){ parts.push(f.label + ' ' + f.value); });
   if (fw.length > 2) parts.push('共 ' + fw.length + ' 項 Firmware');
   if (fw.length === 0) parts.push('尚無 Firmware');
   return parts.join('　');
 }
 
+
 // ===== TESTS =====
-// 測試資料全部是假值，格式仿 RM 的輸出，不放任何真實專案的版本字串、序號或位址
+// 測試資料全部是假值，欄位名稱也只用通用、自編的寫法；
+// 不放任何真實專案或廠商的欄位名稱、指令提示字元、版本字串、序號或位址
 var SAMPLE = [
-  'RScmCli# show sys info -i 99',
+  'cli> show system info',
   '    Id: 99',
   '    Name: ServerXX',
   '    HostName: 192.0.2.99',
@@ -7072,19 +7174,19 @@ var SAMPLE = [
   '    UUID: 00000000-0000-0000-0000-000000000000',
   '    Mac Address: 00:00:5E:00:53:01',
   '    Server:',
-  '        HWVersion: HW-TEST',
+  '        HwVersion: HW-TEST',
   '        PowerState: Off',
-  '        BMCMacAddress: 00:00:5E:00:53:02',
+  '        BmcMacAddress: 00:00:5E:00:53:02',
   '        BiosVersion: BIOS.TEST.1A00.1',
-  '        BMCVersion: BMC.TEST.1.2.3-4',
-  '        BMC2Version: BMC.TEST.1.2.3-4',
-  '        DCSCMCpldVersion: 00.01.00,00.01.00',
-  '        CpldVersion: 00.02.00,00.02.00',
+  '        BmcVersion: BMC.TEST.1.2.3-4',
+  '        BmcAltVersion: BMC.TEST.1.2.3-4',
+  '        ScmCpldVersion: 00.01.00,00.01.00',
+  '        MainCpldVersion: 00.02.00,00.02.00',
   '        Status:',
   '            State: Off',
   '            Health: Ok',
   '    Completion Code: Success',
-  'RScmCli# '
+  'cli> '
 ].join('\n');
 
 var D = function(t){ var r = parseDump(t); return r.ok ? JSON.stringify(r.found) : 'ERROR: ' + r.error; };
@@ -7095,47 +7197,70 @@ var REC = function(stage, fw, extra){
   if (extra) for (var e in extra) rec[e] = extra[e];
   return rec;
 };
+var NOT_FOUND = 'ERROR: 貼上的內容裡找不到可辨識的版本欄位。會找「名稱: 值」的行，名稱要以 Version 結尾，並含 BIOS、BMC 或 CPLD（SCM CPLD 的名稱要含 SCM）。';
 
 var TESTS = [
+  // 規則（名稱已去掉符號、轉小寫）
+  { name: '規則：bios + version',         fn: function(){ return classify('biosversion'); }, want: 'bios' },
+  { name: '規則：bmc + version',          fn: function(){ return classify('bmcfirmwareversion'); }, want: 'bmc' },
+  { name: '規則：scm 的 cpld',            fn: function(){ return classify('scmcpldversion'); }, want: 'scmCpld' },
+  { name: '規則：不含 scm 的 cpld 歸 HPM', fn: function(){ return classify('maincpldversion'); }, want: 'hpmCpld' },
+  { name: '規則：明寫 hpm 的 cpld',        fn: function(){ return classify('hpmcpldversion'); }, want: 'hpmCpld' },
+  { name: '規則：scm cpld 不帶 version 也算', fn: function(){ return classify('scmcpld'); }, want: 'scmCpld' },
+  { name: '規則：hpm cpld 不帶 version 也算', fn: function(){ return classify('hpmcpld'); }, want: 'hpmCpld' },
+  { name: '規則：沒有 scm 與 hpm 的 cpld 要有 version', fn: function(){ return classify('cpld'); }, want: '' },
+  { name: '規則：version 後面還有字就不算', fn: function(){ return classify('biosversiondate'); }, want: '' },
+  { name: '規則：沒有 version 就不算',     fn: function(){ return classify('bmcmacaddress'); }, want: '' },
+  { name: '規則：版本欄但不是這四個',       fn: function(){ return classify('hwversion'); }, want: '' },
+  { name: '規則：cpld 的更新狀態不算',      fn: function(){ return classify('cpldupdatestatus'); }, want: '' },
+  { name: '規則：數字排序，沒有數字算 1',    fn: function(){ return rankOf('bmcversion') + ',' + rankOf('bmc7version') + ',' + rankOf('bmc10version'); }, want: '1,7,10' },
   // 貼上偵測
   { name: '偵測：樣本四個欄位',       fn: function(){ return D(SAMPLE); },
     want: '{"bios":"BIOS.TEST.1A00.1","bmc":"BMC.TEST.1.2.3-4","scmCpld":"00.01.00","hpmCpld":"00.02.00"}' },
-  { name: '去重：兩筆相同只留一筆',      fn: function(){ return parseDump('DCSCMCpldVersion: 1.0,1.0').found.scmCpld; }, want: '1.0' },
-  { name: '去重：逗號後有空白也算',       fn: function(){ return parseDump('CpldVersion: 1.0, 1.0').found.hpmCpld; }, want: '1.0' },
-  { name: '去重：三筆都相同',            fn: function(){ return parseDump('CpldVersion: 1.0,1.0,1.0').found.hpmCpld; }, want: '1.0' },
-  { name: '去重：兩筆不同原樣保留',       fn: function(){ return parseDump('DCSCMCpldVersion: 1.0,1.1').found.scmCpld; }, want: '1.0,1.1' },
-  { name: '去重：兩筆不同要提示',         fn: function(){ return DN('DCSCMCpldVersion: 1.0,1.1'); }, want: 'SCM CPLD 有兩筆不同的值（1.0,1.1），保留原樣，請確認' },
-  { name: '去重：兩筆相同不提示',         fn: function(){ return DN('DCSCMCpldVersion: 1.0,1.0'); }, want: '' },
-  { name: '去重：BMC 兩筆相同',          fn: function(){ return parseDump('BMCVersion: A.1,A.1').found.bmc; }, want: 'A.1' },
-  { name: '去重：BMC 與 BMC2 都是成對',   fn: function(){ return parseDump('BMCVersion: A.1,A.1\nBMC2Version: A.1,A.1').found.bmc; }, want: 'A.1' },
-  { name: '去重：BMC 與 BMC2 不同',       fn: function(){ return parseDump('BMCVersion: A.1,A.1\nBMC2Version: B.2,B.2').found.bmc; }, want: 'A.1 / B.2' },
-  { name: '去重：單一值不受影響',          fn: function(){ return parseDump('CpldVersion: 1.0').found.hpmCpld; }, want: '1.0' },
+  { name: '去重：兩筆相同只留一筆',      fn: function(){ return parseDump('ScmCpldVersion: 1.0,1.0').found.scmCpld; }, want: '1.0' },
+  { name: '去重：逗號後有空白也算',       fn: function(){ return parseDump('MainCpldVersion: 1.0, 1.0').found.hpmCpld; }, want: '1.0' },
+  { name: '去重：三筆都相同',            fn: function(){ return parseDump('MainCpldVersion: 1.0,1.0,1.0').found.hpmCpld; }, want: '1.0' },
+  { name: '去重：兩筆不同原樣保留',       fn: function(){ return parseDump('ScmCpldVersion: 1.0,1.1').found.scmCpld; }, want: '1.0,1.1' },
+  { name: '去重：兩筆不同要提示',         fn: function(){ return DN('ScmCpldVersion: 1.0,1.1'); }, want: 'SCM CPLD 有兩筆不同的值（1.0,1.1），保留原樣，請確認' },
+  { name: '去重：兩筆相同不提示',         fn: function(){ return DN('ScmCpldVersion: 1.0,1.0'); }, want: '' },
+  { name: '去重：BMC 兩筆相同',          fn: function(){ return parseDump('BmcVersion: A.1,A.1').found.bmc; }, want: 'A.1' },
+  { name: '去重：多組 BMC 都是成對',      fn: function(){ return parseDump('BmcVersion: A.1,A.1\nBmcAltVersion: A.1,A.1').found.bmc; }, want: 'A.1' },
+  { name: '去重：多組 BMC 不同',          fn: function(){ return parseDump('BmcVersion: A.1,A.1\nBmcAltVersion: B.2,B.2').found.bmc; }, want: 'A.1 / B.2' },
+  { name: '去重：單一值不受影響',          fn: function(){ return parseDump('MainCpldVersion: 1.0').found.hpmCpld; }, want: '1.0' },
   { name: '去重：BIOS 不處理',            fn: function(){ return parseDump('BiosVersion: 1.0,1.0').found.bios; }, want: '1.0,1.0' },
   { name: '偵測：順序依畫面順序',      fn: function(){ return parseDump(SAMPLE).order.join(','); }, want: 'bios,bmc,scmCpld,hpmCpld' },
-  { name: '偵測：BMC2 相同不重複',     fn: function(){ return parseDump(SAMPLE).found.bmc; }, want: 'BMC.TEST.1.2.3-4' },
-  { name: '偵測：BMC2 不同用 / 接起來', fn: function(){ return parseDump('BMCVersion: A.1\nBMC2Version: B.2').found.bmc; }, want: 'A.1 / B.2' },
-  { name: '偵測：BMC2 不同時提示',     fn: function(){ return DN('BMCVersion: A.1\nBMC2Version: B.2'); }, want: 'BMC 與 BMC2 版本不同，已用 " / " 接在一起' },
+  { name: '偵測：多組 BMC 相同不重複',  fn: function(){ return parseDump(SAMPLE).found.bmc; }, want: 'BMC.TEST.1.2.3-4' },
+  { name: '偵測：多組 BMC 不同用 / 接起來', fn: function(){ return parseDump('BmcVersion: A.1\nBmcAltVersion: B.2').found.bmc; }, want: 'A.1 / B.2' },
+  { name: '偵測：多組 BMC 不同時提示',  fn: function(){ return DN('BmcVersion: A.1\nBmcAltVersion: B.2'); }, want: '有多組 BMC 版本不同，已用 " / " 接在一起' },
+  { name: '偵測：BMC 依名稱裡的數字排，不依出現順序', fn: function(){ return parseDump('Bmc7Version: C.3\nBmcVersion: A.1\nBmc5Version: B.2').found.bmc; }, want: 'A.1 / B.2 / C.3' },
+  { name: '偵測：只有第二組 BMC 不填',        fn: function(){ return D('Bmc5Version: B.2'); }, want: NOT_FOUND },
+  { name: '偵測：第一組用 1 標號也算第一組', fn: function(){ return parseDump('Bmc1Version: A.1\nBmc5Version: B.2').found.bmc; }, want: 'A.1 / B.2' },
+  { name: '偵測：同一個 BMC 名稱重複又不同', fn: function(){ return DN('BmcVersion: A\nBmcVersion: B'); }, want: 'BMC 出現 2 個不同的值，只取第一個：A' },
   { name: '偵測：不碰序號 UUID MAC',   fn: function(){ var f = parseDump(SAMPLE).found; return JSON.stringify(f).indexOf('SN-TEST') + '/' + JSON.stringify(f).indexOf('00:00:5E'); }, want: '-1/-1' },
-  { name: '偵測：DCSCM 與 Cpld 分開',  fn: function(){ var f = parseDump('DCSCMCpldVersion: 1.0\nCpldVersion: 2.0').found; return f.scmCpld + '/' + f.hpmCpld; }, want: '1.0/2.0' },
-  { name: '偵測：只有 DCSCM 不會填 HPM', fn: function(){ var f = parseDump('DCSCMCpldVersion: 1.0').found; return f.scmCpld + '/' + f.hpmCpld; }, want: '1.0/undefined' },
+  { name: '偵測：SCM 與一般 CPLD 分開', fn: function(){ var f = parseDump('ScmCpldVersion: 1.0\nMainCpldVersion: 2.0').found; return f.scmCpld + '/' + f.hpmCpld; }, want: '1.0/2.0' },
+  { name: '偵測：只有 SCM 不會填 HPM',  fn: function(){ var f = parseDump('ScmCpldVersion: 1.0').found; return f.scmCpld + '/' + f.hpmCpld; }, want: '1.0/undefined' },
   { name: '偵測：標籤大小寫與空白不拘', fn: function(){ return parseDump('  bios version = X.1').found.bios; }, want: 'X.1' },
+  { name: '偵測：標籤有底線與連字號',   fn: function(){ return parseDump('SCM_CPLD-Version: X.0').found.scmCpld; }, want: 'X.0' },
   { name: '偵測：顏色控制碼',          fn: function(){ return parseDump('\u001b[32mBiosVersion\u001b[0m: \u001b[35mX.2\u001b[0m').found.bios; }, want: 'X.2' },
   { name: '偵測：JSON 風格',          fn: function(){ return parseDump('"BiosVersion": "X.3",').found.bios; }, want: 'X.3' },
-  { name: '偵測：Windows 換行',       fn: function(){ return parseDump('BiosVersion: X.4\r\nBMCVersion: Y.4\r\n').order.join(','); }, want: 'bios,bmc' },
-  { name: '偵測：N/A 不填',           fn: function(){ return D('BiosVersion: N/A\nBMCVersion: Y.5'); }, want: '{"bmc":"Y.5"}' },
+  { name: '偵測：Windows 換行',       fn: function(){ return parseDump('BiosVersion: X.4\r\nBmcVersion: Y.4\r\n').order.join(','); }, want: 'bios,bmc' },
+  { name: '偵測：N/A 不填',           fn: function(){ return D('BiosVersion: N/A\nBmcVersion: Y.5'); }, want: '{"bmc":"Y.5"}' },
   { name: '偵測：重複出現取第一個並提示', fn: function(){ return DN('BiosVersion: A\nBiosVersion: B'); }, want: 'BIOS 出現 2 個不同的值，只取第一個：A' },
   { name: '偵測：重複但相同不提示',     fn: function(){ return DN('BiosVersion: A\nBiosVersion: A'); }, want: '' },
+  { name: '偵測：不同名稱給不同的值也要提示', fn: function(){ return DN('BiosVersion: A\nBiosFirmwareVersion: B'); }, want: 'BIOS 出現 2 個不同的值，只取第一個：A' },
   { name: '偵測：空字串不報錯',        fn: function(){ return D(''); }, want: '{}' },
   { name: '偵測：只有空白不報錯',      fn: function(){ return D('  \n  '); }, want: '{}' },
-  { name: '偵測：認不得時說明怎麼辦',   fn: function(){ return D('hello world\nfoo: bar'); }, want: 'ERROR: 貼上的內容裡找不到可辨識的版本欄位。目前認得的欄位名稱：BiosVersion、BMCVersion、DCSCMCpldVersion、CpldVersion。' },
-  { name: '偵測：標籤要整個相等',      fn: function(){ return D('MyBiosVersionX: Z'); }, want: 'ERROR: 貼上的內容裡找不到可辨識的版本欄位。目前認得的欄位名稱：BiosVersion、BMCVersion、DCSCMCpldVersion、CpldVersion。' },
+  { name: '偵測：認不得時說明規則',     fn: function(){ return D('hello world\nfoo: bar'); }, want: NOT_FOUND },
+  { name: '偵測：名稱後面還有字不算',    fn: function(){ return D('BiosVersionDate: Z'); }, want: NOT_FOUND },
+  { name: '偵測：名稱要含 bios、bmc 或 cpld', fn: function(){ return D('FooVersion: Z'); }, want: NOT_FOUND },
   { name: '偵測：版本值含冒號',        fn: function(){ return parseDump('BiosVersion: v1:2').found.bios; }, want: 'v1:2' },
   { name: '偵測：超長值截到上限',      fn: function(){ return parseDump('BiosVersion: ' + new Array(300).join('x')).found.bios.length; }, want: 120 },
   // 記錄
   { name: '整理：壞資料退成空記錄',     fn: function(){ var r = normalizeRecord('garbage'); return r.stage + '/' + r.fw.bios + '/' + r.test; }, want: '//' },
   { name: '整理：未知階段退成空',       fn: function(){ return normalizeRecord({ stage: 'XYZ' }).stage; }, want: '' },
   { name: '整理：保留合法階段',         fn: function(){ return normalizeRecord({ stage: 'DV' }).stage; }, want: 'DV' },
-  { name: '整理：保留九個欄位',         fn: function(){ return Object.keys(normalizeRecord({ fw: { bios: 'a' } }).fw).length; }, want: 9 },
+  { name: '整理：保留七個固定欄位',        fn: function(){ return Object.keys(normalizeRecord({ fw: { bios: 'a' } }).fw).length; }, want: 7 },
+  { name: '欄位：固定欄位的標籤與順序',     fn: function(){ return FIELDS.map(function(f){ return f.label; }).join('|'); }, want: 'BIOS|BMC|SCM CPLD|HPM CPLD|TPM|SoC OS|SoC Firmware' },
   { name: '整理：備註保留換行',         fn: function(){ return normalizeRecord({ test: 'a\r\nb' }).test; }, want: 'a\nb' },
   { name: '整理：版本欄換行變空白',      fn: function(){ return normalizeRecord({ fw: { bios: 'a\nb' } }).fw.bios; }, want: 'a b' },
   { name: '階段：六個',                fn: function(){ return STAGES.join(','); }, want: 'POC,EV,DV,PV,MP,DoE' },
@@ -7153,7 +7278,35 @@ var TESTS = [
   { name: '產出：依畫面順序',            fn: function(){ return formatOutput(REC('', { hpmCpld: 'C2', bios: 'B1' })); }, want: 'BIOS: B1\nHPM CPLD: C2' },
   { name: '產出：沒填的不產出',           fn: function(){ return formatOutput(REC('EV', null, { test: 'x' })); }, want: '' },
   { name: '產出：只有空白不算有填',        fn: function(){ return formatOutput(REC('', { bios: '   ', bmc: 'M1' })); }, want: 'BMC: M1' },
-  { name: '產出：九個欄位名稱',           fn: function(){ var all = {}; FIELDS.forEach(function(x){ all[x.id] = 'v'; }); return formatOutput(REC('', all)).split('\n').map(function(l){ return l.split(':')[0]; }).join('|'); }, want: 'BIOS|BMC|SCM CPLD|HPM CPLD|Manticore|TPM|SoC OS|SoC Firmware|FPGA Cerberus' },
+  { name: '產出：七個欄位名稱',           fn: function(){ var all = {}; FIELDS.forEach(function(x){ all[x.id] = 'v'; }); return formatOutput(REC('', all)).split('\n').map(function(l){ return l.split(':')[0]; }).join('|'); }, want: 'BIOS|BMC|SCM CPLD|HPM CPLD|TPM|SoC OS|SoC Firmware' },
+  // 自訂項目
+  { name: '自訂：整理後保留名稱與版本',        fn: function(){ return JSON.stringify(normalizeRecord({ custom: [{ name: ' NIC ', version: ' 1.2 ' }] }).custom); }, want: '[{"name":"NIC","version":"1.2"}]' },
+  { name: '自訂：全空的列丟掉',              fn: function(){ return normalizeRecord({ custom: [{ name: '', version: ' ' }, { name: 'A', version: '' }] }).custom.length; }, want: 1 },
+  { name: '自訂：不是陣列就忽略',            fn: function(){ return normalizeRecord({ custom: 'x' }).custom.length + '/' + normalizeRecord({ custom: { a: 1 } }).custom.length; }, want: '0/0' },
+  { name: '自訂：壞資料的列忽略',            fn: function(){ return normalizeRecord({ custom: [null, 5, 'a', { name: 'A', version: '1' }] }).custom.length; }, want: 1 },
+  { name: '自訂：名稱與版本換行變空白',        fn: function(){ var c = normalizeRecord({ custom: [{ name: 'a\nb', version: 'c\r\nd' }] }).custom[0]; return c.name + '|' + c.version; }, want: 'a b|c d' },
+  { name: '自訂：名稱截到 40 字',            fn: function(){ return normalizeRecord({ custom: [{ name: new Array(100).join('n'), version: 'v' }] }).custom[0].name.length; }, want: 40 },
+  { name: '自訂：版本截到 120 字',           fn: function(){ return normalizeRecord({ custom: [{ name: 'n', version: new Array(300).join('v') }] }).custom[0].version.length; }, want: 120 },
+  { name: '自訂：最多 20 列',               fn: function(){ var a = []; for (var i = 0; i < 30; i++) a.push({ name: 'n' + i, version: 'v' }); return normalizeRecord({ custom: a }).custom.length; }, want: 20 },
+  { name: '自訂：預設是空陣列',              fn: function(){ return emptyRecord().custom.length + '/' + normalizeRecord(null).custom.length; }, want: '0/0' },
+  { name: '自訂：名稱與版本都有才輸出',        fn: function(){ return formatOutput(REC('', { bios: 'B1' }, { custom: [{ name: 'NIC', version: '1.2' }] })); }, want: 'BIOS: B1\nNIC: 1.2' },
+  { name: '自訂：排在固定欄位後面，依列的順序',  fn: function(){ return formatOutput(REC('', { tpm: 'T1' }, { custom: [{ name: 'Zed', version: '9' }, { name: 'Alpha', version: '1' }] })); }, want: 'TPM: T1\nZed: 9\nAlpha: 1' },
+  { name: '自訂：只填一半的不輸出',           fn: function(){ return formatOutput(REC('', null, { custom: [{ name: 'NIC', version: '' }, { name: '', version: '2' }] })); }, want: '' },
+  { name: '自訂：只填一半的列數',            fn: function(){ return halfFilled(REC('', null, { custom: [{ name: 'NIC', version: '' }, { name: '', version: '2' }, { name: 'A', version: 'B' }] })); }, want: 2 },
+  { name: '自訂：只填一半也算有輸入',          fn: function(){ return hasAnyInput(REC('', null, { custom: [{ name: 'NIC', version: '' }] })); }, want: true },
+  { name: '自訂：算進摘要的項數',            fn: function(){ return summaryOf(REC('', { bios: 'B1' }, { custom: [{ name: 'A', version: '1' }, { name: 'B', version: '2' }] })); }, want: 'BIOS B1　A 1　共 3 項 Firmware' },
+  { name: '自訂：摘要用自訂的名稱',           fn: function(){ return summaryOf(REC('EV', null, { custom: [{ name: 'NIC', version: '1.2' }] })); }, want: 'EV　NIC 1.2' },
+  { name: '自訂：只有一半的摘要不報「共幾項」',  fn: function(){ return summaryOf(REC('', null, { custom: [{ name: 'NIC', version: '' }] })); }, want: '尚無 Firmware' },
+  { name: '自訂：名稱含冒號照樣輸出',         fn: function(){ return formatOutput(REC('', null, { custom: [{ name: 'a:b', version: '1' }] })); }, want: 'a:b: 1' },
+  { name: '自訂：版本前後空白不輸出',          fn: function(){ return formatOutput(REC('', null, { custom: [{ name: ' N ', version: ' 1 ' }] })); }, want: 'N: 1' },
+  // 舊版已移除的固定欄位：值轉成自訂項目，不讓已存的資料消失
+  { name: '舊欄位：值轉成自訂項目',           fn: function(){ return JSON.stringify(normalizeRecord({ fw: { bios: 'B', legacyOne: 'L1' } }).custom); }, want: '[{"name":"LegacyOne","version":"L1"}]' },
+  { name: '舊欄位：空值不轉',                fn: function(){ return normalizeRecord({ fw: { legacyOne: '  ' } }).custom.length; }, want: 0 },
+  { name: '舊欄位：不認得的怪名稱不轉',        fn: function(){ return normalizeRecord({ fw: { 'a b': 'x', 'a-b': 'y', '': 'z' } }).custom.length; }, want: 0 },
+  { name: '舊欄位：排在使用者自己的自訂項目後面', fn: function(){ return normalizeRecord({ fw: { legacyOne: 'L1' }, custom: [{ name: 'Mine', version: '1' }] }).custom.map(function(c){ return c.name; }).join(','); }, want: 'Mine,LegacyOne' },
+  { name: '舊欄位：轉換後再整理一次不會重複',    fn: function(){ var a = normalizeRecord({ fw: { legacyOne: 'L1' } }); return normalizeRecord(JSON.parse(JSON.stringify(a))).custom.length; }, want: 1 },
+  { name: '舊欄位：已知欄位不轉',             fn: function(){ var r = normalizeRecord({ fw: { bios: 'B', tpm: 'T' } }); return r.custom.length + '/' + r.fw.bios + '/' + r.fw.tpm; }, want: '0/B/T' },
+  { name: '舊欄位：轉換也受 20 列上限限制',     fn: function(){ var fw = {}; for (var i = 0; i < 30; i++) fw['x' + i] = 'v'; return normalizeRecord({ fw: fw }).custom.length; }, want: 20 },
   { name: '產出：不含階段與備註',          fn: function(){ return formatOutput(REC('EV', { bios: 'B1' }, { test: 'T', issue: 'I' })); }, want: 'BIOS: B1' },
   { name: '輸入判斷：只選階段也算',       fn: function(){ return hasAnyInput(REC('POC', null)); }, want: true },
   { name: '輸入判斷：全空',             fn: function(){ return hasAnyInput(emptyRecord()); }, want: false }
@@ -7173,7 +7326,7 @@ function runTests(){
 // ===== END CORE =====
 
 // ===== DOM =====
-var VERSION = '1.1.2';
+var VERSION = '1.1.4';
 var KEY = 'fwr.v1';   // 表單目前的內容（不含貼上區的原文），重新載入後還在；只存在這台裝置
 
 var store = {
@@ -7222,10 +7375,97 @@ function buildRows(){
   }).join('');
 }
 
+// ---- 自訂項目：使用者自己新增的「項目名稱 / 版本」----
+// 每一列的 id 用遞增的流水號（不是第幾列），移除中間一列時其他列的 id 不會變，也不會重複。
+var customSeq = 0;
+
+function rowEls(){ return [].slice.call($('customRows').children); }
+function elOf(prefix, k){ return document.getElementById(PFX + prefix + '-' + k); }
+
+function rowHtml(k){
+  return '<input id="' + PFX + 'cn-' + k + '" class="cn" type="text" autocomplete="off" spellcheck="false"' +
+    ' autocapitalize="off" maxlength="' + MAX_NAME + '" placeholder="項目名稱 Item" oninput="FWR.onInput()">' +
+    '<input id="' + PFX + 'cv-' + k + '" class="cv" type="text" autocomplete="off" spellcheck="false"' +
+    ' autocapitalize="off" maxlength="' + MAX_FW + '" placeholder="版本 Version" oninput="FWR.onInput()">' +
+    '<button type="button" class="cp" onclick="FWR.onCopyItem(' + k + ', this)">複製</button>' +
+    '<button type="button" class="cx" onclick="FWR.onRemoveItem(' + k + ', this)">移除</button>';
+}
+
+function addRow(name, version){
+  var k = ++customSeq;
+  var row = document.createElement('div');
+  row.className = 'crow';
+  row.setAttribute('data-k', k);
+  row.innerHTML = rowHtml(k);
+  $('customRows').appendChild(row);
+  elOf('cn', k).value = name || '';       // 用屬性塞值，不經過 HTML，使用者打的 < > " 都不會壞掉
+  elOf('cv', k).value = version || '';
+  return k;
+}
+
+// 列的順序會變（移除、重建），無障礙名稱要跟著重編
+function relabel(){
+  var rows = rowEls();
+  rows.forEach(function(row, i){
+    var k = row.getAttribute('data-k'), n = i + 1;
+    elOf('cn', k).setAttribute('aria-label', '自訂項目 ' + n + ' 名稱');
+    elOf('cv', k).setAttribute('aria-label', '自訂項目 ' + n + ' 版本');
+    row.querySelector('.cp').setAttribute('aria-label', '複製自訂項目 ' + n + ' 的版本');
+    row.querySelector('.cx').setAttribute('aria-label', '移除自訂項目 ' + n);
+  });
+  $('addItem').disabled = rows.length >= MAX_CUSTOM;
+}
+
+// 只留有字的列（全空的列不存，重新載入就不會冒出空白列）
+function readCustom(){
+  return rowEls().map(function(row){
+    var k = row.getAttribute('data-k');
+    return { name: cleanName(elOf('cn', k).value), version: cleanLine(elOf('cv', k).value) };
+  }).filter(function(c){ return c.name !== '' || c.version !== ''; });
+}
+
+function updateCustomMsg(){
+  var rec = emptyRecord(); rec.custom = readCustom();
+  var half = halfFilled(rec), parts = [];
+  if (half) parts.push(half + ' 列只填了一半：名稱與版本都要填，才會出現在產出裡。');
+  if (rowEls().length >= MAX_CUSTOM) parts.push('已經是上限 ' + MAX_CUSTOM + ' 列。');
+  $('customMsg').textContent = parts.join(' ');
+}
+
+function onAddItem(){
+  if (rowEls().length >= MAX_CUSTOM){ updateCustomMsg(); return; }
+  var k = addRow('', '');
+  relabel();
+  updateCustomMsg();
+  elOf('cn', k).focus();
+}
+
+function onRemoveItem(k, btn){
+  var empty = cleanName(elOf('cn', k).value) === '' && cleanLine(elOf('cv', k).value) === '';
+  // 有填東西的列要按兩次才移除（手滑會弄丟打好的版本）；全空的列直接移除
+  if (!empty && btn.getAttribute('data-armed') !== '1'){
+    var old = btn.textContent;
+    btn.setAttribute('data-armed', '1');
+    btn.textContent = '再按一次移除';
+    btn._t = setTimeout(function(){ btn.removeAttribute('data-armed'); btn.textContent = old; }, 3000);
+    return;
+  }
+  clearTimeout(btn._t);
+  var row = btn.parentNode;
+  var next = row.nextElementSibling || row.previousElementSibling;
+  row.parentNode.removeChild(row);
+  relabel();
+  staleOut();
+  saveState();
+  updateCustomMsg();
+  if (next) elOf('cn', next.getAttribute('data-k')).focus(); else $('addItem').focus();
+}
+
 function readRecord(){
   var rec = emptyRecord();
   rec.stage = $('stage').value;
   FIELDS.forEach(function(f){ rec.fw[f.id] = cleanLine($('f-' + f.id).value); });
+  rec.custom = readCustom();
   rec.test = cleanNote($('test').value);
   rec.issue = cleanNote($('issue').value);
   return rec;
@@ -7234,6 +7474,10 @@ function readRecord(){
 function writeRecord(rec){
   $('stage').value = rec.stage;
   FIELDS.forEach(function(f){ $('f-' + f.id).value = rec.fw[f.id]; });
+  $('customRows').innerHTML = '';
+  (rec.custom || []).forEach(function(c){ addRow(c.name, c.version); });
+  relabel();
+  updateCustomMsg();
   $('test').value = rec.test;
   $('issue').value = rec.issue;
 }
@@ -7282,7 +7526,8 @@ function onGenerate(){
     return;
   }
   outText = text;
-  renderOut(text.split('\n').length + ' 項已產出，沒填的欄位不會出現。', false);
+  var half = halfFilled(rec);
+  renderOut(text.split('\n').length + ' 項已產出，沒填的欄位不會出現。' + (half ? ' 另有 ' + half + ' 列自訂項目只填了一半，沒有產出。' : ''), false);
 }
 
 function onCopyOut(btn){
@@ -7294,7 +7539,7 @@ function onCopyOut(btn){
   } else legacyCopy(outText, done);
 }
 
-function onInput(){ staleOut(); saveState(); }
+function onInput(){ staleOut(); saveState(); updateCustomMsg(); }
 
 // ---- 貼上自動偵測 ----
 function renderDetect(res, changed){
@@ -7381,7 +7626,12 @@ function onClear(){
 function onCopy(key, btn){
   var id = COPY_IDS[key];
   if (!id) return;
-  var el = document.getElementById(PFX + id);
+  copyText(document.getElementById(PFX + id), btn);
+}
+
+function onCopyItem(k, btn){ copyText(elOf('cv', k), btn); }
+
+function copyText(el, btn){
   var text = String(el.value).trim();
   var old = btn.textContent;
   var flash = function(t){
@@ -7416,7 +7666,7 @@ $('verTag').textContent = 'v' + VERSION;
 loadState();
 renderOut('', false);
 
-return { onClear: onClear, onInput: onInput, onGenerate: onGenerate, onCopyOut: onCopyOut, onPaste: onPaste, onClearPaste: onClearPaste, onCopy: onCopy, snapshot: snapshot, restore: restore, summary: summary, runTests: runTests, TESTS: TESTS };
+return { onAddItem: onAddItem, onRemoveItem: onRemoveItem, onCopyItem: onCopyItem, onClear: onClear, onInput: onInput, onGenerate: onGenerate, onCopyOut: onCopyOut, onPaste: onPaste, onClearPaste: onClearPaste, onCopy: onCopy, snapshot: snapshot, restore: restore, summary: summary, runTests: runTests, TESTS: TESTS };
 })();
 
 var LN = (function(){
